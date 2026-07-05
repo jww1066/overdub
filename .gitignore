@@ -1,0 +1,46 @@
+# Android / Gradle
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android Studio / IntelliJ
+.idea/
+*.hprof
+.navigation/
+*.jks
+*.keystore
+
+# Android NDK
+obj/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+*.egg
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*~
+*.swp

@@ -54,6 +54,13 @@ Explicitly deferred pending real usage data or further investigation (see
 [`doc/design-summary.md`](doc/design-summary.md) for details): pre-roll buffer sizing, echo
 cancellation quality on real music content, and USB Audio Class consistency across Android OEMs.
 
+## Repo layout
+
+The Android app lives at the repo root (standard Gradle/Android Studio layout). Offline
+signal-processing prototyping and validation (the Python half of Test 2 in the validation plan)
+lives separately in [`analysis/`](analysis/), with its own `pyproject.toml` and venv, so Python and
+Gradle tooling don't collide.
+
 ## Development
 
 See [`CLAUDE.md`](CLAUDE.md) for Android audio development and testing conventions used in this
