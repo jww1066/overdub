@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- RECORD_AUDIO: the input side of the full-duplex capture (Components section 2).
+         MODIFY_AUDIO_SETTINGS: pinning STREAM_MUSIC volume so the playback-gain axis is reproducible.
+         RECORD_AUDIO is a runtime permission; the instrumented test must grant it
+         (GrantPermissionRule) before a capture runs, since there is no interactive UI here. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <application
         android:allowBackup="false"
         android:label="Overdub Test 2 Harness" />

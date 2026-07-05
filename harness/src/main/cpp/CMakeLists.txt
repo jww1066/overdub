@@ -7,7 +7,8 @@ project("overdub_harness")
 find_package(oboe REQUIRED CONFIG)
 
 add_library(overdub_harness SHARED
-    native_bridge.cpp)
+    native_bridge.cpp
+    native_engine.cpp)
 
 target_link_libraries(overdub_harness
     oboe::oboe

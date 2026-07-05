@@ -50,10 +50,46 @@ items above.
 - Verified via a clean `assembleDebug`: `liboboe.so`, `libc++_shared.so`, and `liboverdub_harness.so`
   all land in the APK for both ABIs; Tier 1 unit tests still pass. No device needed for this step.
 
-**Not started — Stage 2 steps 2+ (needs a physical device):**
-- The Oboe/CMake/JNI full-duplex native audio engine itself (Components §2's output/input stream
-  setup, playback-volume pinning, XRun logging, on-device sanity gate) — `native_bridge.cpp` above
-  is only a linkage placeholder, not this.
+**Done — Stage 2 step 2 + Tier-2 tests, verified on a real Pixel 10 (2026-07-05):**
+- All eight Tier-2 instrumented tests pass on a physical Pixel 10 (arm64-v8a, API 36) via
+  `connectedDebugAndroidTest` (`harness/src/androidTest/.../capture/CaptureEngineTest.kt`): streams
+  open in LowLatency/Exclusive, zero XRuns, captured duration/format correct, capture non-silent
+  (bleed reaches the mic: baseline RMS ~320-340), metadata tagged end-to-end, speaker route holds,
+  and 5 back-to-back runs leak-free. Native output rate negotiated at 48000 Hz, 96-frame bursts.
+- **XRun finding + fix (diagnosed on-device, per CLAUDE.md "Diagnose before re-implementing").** The
+  first cold runs showed non-zero XRuns, and the hard-fail zero-XRun assertion was flaky depending on
+  test order (it ran last, after the audio path was warm). Logging each stream separately isolated it
+  to the *input* stream during warmup, not the output. Root cause: the output callback only drained
+  one burst of input per call and the input stream was started before its drainer (the output
+  callback) was live, so the input buffer backed up and overran at startup. Fixed by (a) starting the
+  output stream first so the drainer is running before input data arrives, gating input reads behind
+  an `mInputStarted` flag; (b) draining *all* available input each callback, not one burst;
+  (c) growing the output buffer to 4 bursts and maxing the input buffer. Five consecutive cold runs
+  then showed output=0/input=0 XRuns deterministically.
+- Still pending for step 2's data to be *judged* (not blocking the engine itself): Tier-3 manual
+  sanity-listen, the real beatbox reference track, and Test 1's ground-truth latency number.
+
+**Superseded detail — original build-only verification of step 2:**
+- The Oboe/CMake/JNI full-duplex native audio engine now exists:
+  `harness/src/main/cpp/native_engine.{h,cpp}` (the `FullDuplexEngine` — output+input streams in
+  LowLatency/Exclusive, `InputPreset::VoiceRecognition`, `setDeviceId()` speaker/mic forcing, a
+  lock-free SPSC ring buffer drained by a dedicated thread, per-sample playback gain, XRun latching,
+  ring-overflow drop counting), `native_bridge.cpp` (rewritten from the linkage placeholder into the
+  full JNI lifecycle), and `NativeBridge.kt` (the matching `external` lifecycle functions).
+- The Kotlin half of the bridge is `capture/CaptureEngine.kt`: it pins STREAM_MUSIC volume, queries
+  the native sample rate, resolves+forces the built-in speaker/mic route, drives the native capture,
+  runs the on-device RMS sanity gate to Logcat, and writes the WAV + JSON sidecar by reusing the
+  Stage-1 `writeWav`/`ConditionMetadata`/`rms` rather than duplicating that logic in C++. A pure
+  `wav/WavReader.kt` was added to decode the bundled reference asset. `ConditionMetadata` gained a
+  nullable `stream_volume_index` field (Components §2's "log the index into metadata"); `RECORD_AUDIO`
+  + `MODIFY_AUDIO_SETTINGS` were added to the manifest.
+- Verified via a clean `gradlew test assembleDebug`: Tier-1 unit tests still pass, both ABIs compile
+  and link, and `liboverdub_harness.so`/`liboboe.so`/`libc++_shared.so` land in the APK for both.
+  **Everything acoustic in it is unverified** — no physical device has been connected to this repo,
+  so stream-open in LowLatency/Exclusive, the speaker-route hold, XRun behavior, and whether bleed
+  clears the sanity floor are all untested. That is exactly what Tier 2/3 below exist to check.
+
+**Not started — Stage 2 steps 3+ (needs a physical device):**
 - The condition-sweep driver (Components §3).
 - Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
   implemented and gated (see "Sequencing dependencies" above), so this is no longer blocked on
@@ -260,15 +296,13 @@ covers only the capture-and-measure step for a single device.
 In rough dependency order, picking up from "Implementation status" above:
 
 1. ~~**Wire NDK/CMake into `harness/build.gradle.kts`**~~ — done (see "Implementation status" above).
-2. **Implement the full-duplex native engine + JNI bridge** per Components §2 (output/input stream
-   setup, `InputPreset::VoiceRecognition`, `setPreferredDevice()` speaker/mic forcing, the lock-free
-   ring buffer, playback-volume pinning, XRun logging, the on-device RMS sanity gate) — reusing the
-   already-built `WavWriter`, `ConditionMetadata`, and `Rms` from Stage 1 on the Kotlin side of the
-   bridge rather than duplicating that logic in C++.
+2. ~~**Implement the full-duplex native engine + JNI bridge**~~ — code written and build-verified (see
+   "Implementation status" above); still needs on-device verification, which happens as part of the
+   Tier 2 instrumented tests in item 4 (no device connected yet, so that gate is open).
 3. **Build the condition-sweep driver** (Components §3) against the already-built
-   `generateConditionMatrix()`.
-4. **Write and run the Tier 2 instrumented tests** — needs a connected physical device; none is
-   connected as of this writing, so this step is blocked until one is available.
+   `generateConditionMatrix()`, driving `CaptureEngine.runCapture(condition, outputDir)` per cell.
+4. ~~**Write and run the Tier 2 instrumented tests**~~ — done and green on a real Pixel 10 (see
+   "Implementation status" above), including the XRun diagnosis/fix that surfaced there.
 5. **Replace the synthetic placeholder reference track** with a real clean, dry beatbox recording
    before any Tier 3 work.
 6. **Tier 3 manual checkpoints and Components §4's data-pull/analysis integration** — the latter

@@ -1,19 +1,117 @@
-// Minimal placeholder proving the Oboe/CMake/NDK wiring links correctly.
+// JNI bridge between NativeBridge.kt and the C++ FullDuplexEngine (test2-step2-plan.md Stage 2
+// step 2). The engine does the real-time-critical audio work (Oboe full-duplex, lock-free ring
+// buffer, XRun counting); WAV/JSON/RMS stay on the Kotlin side (reusing WavWriter/ConditionMetadata/
+// Rms) per the plan, so this file only marshals across the boundary.
 //
-// The real full-duplex capture engine (Components §2 of test2-step2-plan.md:
-// output/input stream setup, InputPreset::VoiceRecognition,
-// setPreferredDevice() speaker/mic forcing, the lock-free ring buffer,
-// playback-volume pinning, XRun logging, the on-device RMS sanity gate) is
-// Stage 2 step 2, not this step — this file only exists to give CMake a
-// buildable target that actually calls into Oboe, so a build failure here
-// means the dependency wiring is broken rather than the (not yet written)
-// engine.
+// A single global engine instance is enough: the harness runs one capture at a time, driven
+// sequentially from one Kotlin thread. All lifecycle calls below assume that single-threaded driver.
 
 #include <jni.h>
+#include <memory>
+#include <vector>
+
 #include <oboe/Oboe.h>
 
-extern "C" JNIEXPORT jstring JNICALL
+#include "native_engine.h"
+
+namespace {
+std::unique_ptr<overdub::FullDuplexEngine> gEngine;
+}  // namespace
+
+extern "C" {
+
+// Retained from the Stage 2 step-1 linkage placeholder: proves Oboe is actually callable, used by
+// the smoke test rather than the capture path.
+JNIEXPORT jstring JNICALL
 Java_com_overdub_harness_NativeBridge_nativeCheckOboeLinked(JNIEnv *env, jobject /* this */) {
     const char *text = oboe::convertToText(oboe::Result::OK);
     return env->NewStringUTF(text);
 }
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeOpen(JNIEnv * /* env */, jobject /* this */,
+                                                 jint sampleRate, jint channelCount,
+                                                 jint inputPreset, jint outputDeviceId,
+                                                 jint inputDeviceId) {
+    gEngine = std::make_unique<overdub::FullDuplexEngine>();
+    return gEngine->open(sampleRate, channelCount, inputPreset, outputDeviceId, inputDeviceId);
+}
+
+JNIEXPORT void JNICALL
+Java_com_overdub_harness_NativeBridge_nativeSetPlayback(JNIEnv *env, jobject /* this */,
+                                                        jshortArray samples, jfloat gain) {
+    if (!gEngine) return;
+    jsize count = env->GetArrayLength(samples);
+    jshort *elems = env->GetShortArrayElements(samples, nullptr);
+    gEngine->setPlayback(reinterpret_cast<const int16_t *>(elems), static_cast<size_t>(count), gain);
+    env->ReleaseShortArrayElements(samples, elems, JNI_ABORT);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeStart(JNIEnv * /* env */, jobject /* this */) {
+    if (!gEngine) return static_cast<jint>(oboe::Result::ErrorClosed);
+    return gEngine->start();
+}
+
+JNIEXPORT void JNICALL
+Java_com_overdub_harness_NativeBridge_nativeStop(JNIEnv * /* env */, jobject /* this */) {
+    if (gEngine) gEngine->stop();
+}
+
+JNIEXPORT void JNICALL
+Java_com_overdub_harness_NativeBridge_nativeClose(JNIEnv * /* env */, jobject /* this */) {
+    if (gEngine) {
+        gEngine->close();
+        gEngine.reset();
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_overdub_harness_NativeBridge_nativeIsPlaybackComplete(JNIEnv * /* env */,
+                                                               jobject /* this */) {
+    return (gEngine && gEngine->isPlaybackComplete()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jshortArray JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetCapturedSamples(JNIEnv *env, jobject /* this */) {
+    if (!gEngine) return env->NewShortArray(0);
+    size_t count = gEngine->capturedSampleCount();
+    jshortArray result = env->NewShortArray(static_cast<jsize>(count));
+    if (result == nullptr || count == 0) return result;
+    std::vector<int16_t> buffer(count);
+    size_t copied = gEngine->copyCapturedSamples(buffer.data(), count);
+    env->SetShortArrayRegion(result, 0, static_cast<jsize>(copied),
+                             reinterpret_cast<const jshort *>(buffer.data()));
+    return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetXRunCount(JNIEnv * /* env */, jobject /* this */) {
+    return gEngine ? gEngine->xRunCount() : -1;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetDroppedFrameCount(JNIEnv * /* env */,
+                                                                 jobject /* this */) {
+    return gEngine ? static_cast<jlong>(gEngine->droppedFrameCount()) : 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetOutputDeviceId(JNIEnv * /* env */,
+                                                              jobject /* this */) {
+    return gEngine ? gEngine->outputDeviceId() : -1;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetInputDeviceId(JNIEnv * /* env */,
+                                                             jobject /* this */) {
+    return gEngine ? gEngine->inputDeviceId() : -1;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetActualSampleRate(JNIEnv * /* env */,
+                                                                jobject /* this */) {
+    return gEngine ? gEngine->actualSampleRate() : 0;
+}
+
+}  // extern "C"

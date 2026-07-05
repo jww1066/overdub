@@ -6,9 +6,15 @@ import kotlinx.serialization.json.Json
 
 /**
  * JSON sidecar written next to each capture's WAV file, per test2-step2-plan.md Components §2.
- * [xrunCount] and [deviceModel] are nullable: a capture can be written before either is known
- * (XRun count is only available after the streams close; device model query can fail on some
- * OEMs), and a missing value here must not be indistinguishable from a real zero/empty string.
+ * [xrunCount], [deviceModel], and [streamVolumeIndex] are nullable: a capture can be written before
+ * any of them is known (XRun count is only available after the streams close; device model query
+ * can fail on some OEMs; the pinned stream-volume index is absent if pinning was skipped), and a
+ * missing value here must not be indistinguishable from a real zero/empty string.
+ *
+ * [playbackVolume] is the programmatic gain fraction applied per-sample in the engine (Components
+ * §2's AudioTrack.setVolume() analogue). [streamVolumeIndex] records the fixed STREAM_MUSIC index
+ * the harness pins at startup, so `playback_volume` is reproducible in absolute terms rather than
+ * only relative to whatever the OS volume slider happened to be at.
  */
 @Serializable
 data class ConditionMetadata(
@@ -22,6 +28,7 @@ data class ConditionMetadata(
     @SerialName("sample_rate") val sampleRate: Int,
     @SerialName("xrun_count") val xrunCount: Int? = null,
     @SerialName("device_model") val deviceModel: String? = null,
+    @SerialName("stream_volume_index") val streamVolumeIndex: Int? = null,
     @SerialName("timestamp") val timestamp: Long,
 )
 

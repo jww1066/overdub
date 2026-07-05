@@ -1,0 +1,134 @@
+#ifndef OVERDUB_HARNESS_NATIVE_ENGINE_H
+#define OVERDUB_HARNESS_NATIVE_ENGINE_H
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+#include <oboe/Oboe.h>
+
+namespace overdub {
+
+// Full-duplex Oboe engine for the Test 2 bleed-capture harness (test2-step2-plan.md Components 2).
+//
+// Plays a preloaded reference track through the output stream while synchronously capturing the
+// input stream from that same output data callback (Oboe's recommended full-duplex pattern), so the
+// harness reproduces the "single continuous stream, no independently-scheduled players" principle
+// Test 1 validates rather than introducing its own scheduling seam.
+//
+// Real-time discipline (CLAUDE.md "Main-thread discipline" / the callback must stay non-blocking and
+// allocation-free): the audio callback only touches lock-free state -- a plain playback cursor it
+// alone owns, and a single-producer/single-consumer ring buffer it alone writes. It performs no
+// allocation, no locking, and no file I/O. A dedicated drain thread moves captured frames out of the
+// ring into an unbounded accumulator. The WAV/JSON/RMS work is done on the Kotlin side of the JNI
+// bridge (reusing WavWriter/ConditionMetadata/Rms), never here.
+//
+// Not yet exercised on a physical device: no device has been connected to this repo, so none of the
+// on-device behavior below (stream open in LowLatency/Exclusive, XRun counting, actual capture) has
+// been verified -- only that it compiles and links. See test2-step2-plan.md "Next steps" items 2-4.
+class FullDuplexEngine : public oboe::AudioStreamDataCallback {
+public:
+    FullDuplexEngine();
+    ~FullDuplexEngine() override;
+
+    // Opens both streams (I16, LowLatency, Exclusive, the given channel count and sample rate).
+    // The input stream uses the given InputPreset (VoiceRecognition per Components 2, to defeat OEM
+    // AGC/NS that would mask the SNR degradation the sweep exists to map). outputDeviceId /
+    // inputDeviceId force a specific route when >= 0 (the Oboe equivalent of setPreferredDevice --
+    // Kotlin resolves the built-in speaker/mic ids); pass -1 to leave the route unspecified.
+    // Returns an oboe::Result cast to int (oboe::Result::OK == 0 on success).
+    int open(int32_t sampleRate, int32_t channelCount, int32_t inputPreset,
+             int32_t outputDeviceId, int32_t inputDeviceId);
+
+    // Copies the reference track into the playback buffer and sets the playback gain fraction
+    // (0.0-1.0, applied per-sample in the callback -- the Oboe analogue of AudioTrack.setVolume()
+    // named in Components 2). Must be called before start().
+    void setPlayback(const int16_t *samples, size_t count, float gain);
+
+    // Starts both streams and launches the drain thread. Returns an oboe::Result cast to int.
+    int start();
+
+    // Stops both streams, joins the drain thread (final-draining the ring), and latches the XRun
+    // counts. Safe to call more than once.
+    void stop();
+
+    // Closes both streams. Call after stop().
+    void close();
+
+    // True once the whole reference track has been clocked out of the callback.
+    bool isPlaybackComplete() const { return mPlaybackComplete.load(std::memory_order_relaxed); }
+
+    // Number of captured int16 samples accumulated so far (valid after stop()).
+    size_t capturedSampleCount();
+
+    // Copies up to maxCount accumulated samples into dst; returns the number copied.
+    size_t copyCapturedSamples(int16_t *dst, size_t maxCount);
+
+    // Max XRun count across both streams (latched at stop()); -1 if unavailable.
+    int32_t xRunCount() const { return mXRunCount; }
+
+    // Frames the callback had to drop because the ring was full (should stay 0; non-zero means the
+    // drain thread fell behind and the capture is contaminated). Diagnostic only.
+    int64_t droppedFrameCount() const { return mDroppedFrames.load(std::memory_order_relaxed); }
+
+    int32_t outputDeviceId() const { return mOutputDeviceId; }
+    int32_t inputDeviceId() const { return mInputDeviceId; }
+    int32_t actualSampleRate() const { return mActualSampleRate; }
+
+    // oboe::AudioStreamDataCallback
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *oboeStream, void *audioData,
+                                          int32_t numFrames) override;
+
+private:
+    // --- Lock-free SPSC ring buffer (producer: audio callback; consumer: drain thread) ---
+    size_t ringPush(const int16_t *src, size_t count);
+    size_t ringPop(int16_t *dst, size_t maxCount);
+
+    void drainLoop();
+
+    static constexpr size_t kRingCapacity = 1u << 16;  // 65536 int16 (~1.3s mono at 48k)
+    static constexpr size_t kRingMask = kRingCapacity - 1;
+    std::vector<int16_t> mRing;
+    std::atomic<uint64_t> mRingWrite{0};
+    std::atomic<uint64_t> mRingRead{0};
+    std::atomic<int64_t> mDroppedFrames{0};
+
+    std::shared_ptr<oboe::AudioStream> mOutputStream;
+    std::shared_ptr<oboe::AudioStream> mInputStream;
+
+    int32_t mChannelCount = 1;
+    int32_t mActualSampleRate = 0;
+    int32_t mOutputDeviceId = -1;
+    int32_t mInputDeviceId = -1;
+    int32_t mXRunCount = -1;
+
+    // Playback buffer + cursor. mPlayback is set before start() and only read afterwards; the cursor
+    // is touched only by the callback thread.
+    std::vector<int16_t> mPlayback;
+    size_t mPlaybackCursor = 0;
+    float mGain = 1.0f;
+    std::atomic<bool> mPlaybackComplete{false};
+
+    // Gates input reads in the callback: false until start() has actually started the input stream,
+    // so the output callback (which starts first, so the drainer is live before input data arrives)
+    // doesn't read a not-yet-started input stream during the startup window.
+    std::atomic<bool> mInputStarted{false};
+
+    // Scratch buffer the callback reads the input stream into (sized in open(), never in the
+    // callback, so the callback stays allocation-free).
+    std::vector<int16_t> mInputScratch;
+
+    // Capture accumulator, filled by the drain thread, read by Kotlin after stop().
+    std::mutex mAccumMutex;
+    std::vector<int16_t> mAccumulator;
+
+    std::thread mDrainThread;
+    std::atomic<bool> mDrainRunning{false};
+};
+
+}  // namespace overdub
+
+#endif  // OVERDUB_HARNESS_NATIVE_ENGINE_H
