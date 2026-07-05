@@ -72,8 +72,14 @@ def delay(signal: np.ndarray, d: int) -> np.ndarray:
     if d >= 0:
         out[d : d + s.size] = s
     else:
-        # Left shift by |d|: the first s.size-|d| samples are s[|d|:]; rest zero.
-        out[: s.size + d] = s[-d:]
+        # Left shift by |d|: the first s.size-|d| samples are s[|d|:]; rest
+        # zero. If |d| >= s.size the shifted signal has moved entirely past
+        # the window, so the whole output is zero — `s.size + d` would go
+        # negative and Python's negative-slice semantics would silently
+        # select the wrong range, so that case is handled explicitly.
+        k = -d
+        if k < s.size:
+            out[: s.size - k] = s[k:]
     return out
 
 
