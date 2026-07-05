@@ -36,12 +36,24 @@ items above.
   recording) exists via `harness/scripts/generate_reference_track.py`, so the eventual
   playback/capture pipeline has something to play immediately — see the caveat in Components §1
   below; this still needs to be swapped for a real recording before Tier 3 runs.
-- NDK 28.2.13676358 and CMake 3.31.6 are installed (via `sdkmanager`) but not yet wired into
-  `harness/build.gradle.kts` — prep for Stage 2, below.
+- NDK 28.2.13676358 and CMake 3.31.6 are installed (via `sdkmanager`).
 
-**Not started — Stage 2 (needs the NDK, and eventually a physical device):**
-- The Oboe/CMake/JNI full-duplex native audio engine (Components §2's output/input stream setup,
-  playback-volume pinning, XRun logging, on-device sanity gate).
+**Done — Stage 2 step 1 (NDK/CMake/Oboe wiring, no device needed):**
+- `harness/build.gradle.kts` wires `externalNativeBuild`/`ndkVersion` to the installed NDK/CMake,
+  enables `buildFeatures.prefab`, and adds `com.google.oboe:oboe:1.9.3` as a dependency. ABI filters
+  are `arm64-v8a`/`armeabi-v7a` only (no x86/x86_64 — `CLAUDE.md` rules out the emulator for
+  anything audio-related).
+- `harness/src/main/cpp/CMakeLists.txt` + `native_bridge.cpp` and
+  `harness/src/main/java/com/overdub/harness/NativeBridge.kt` are a minimal placeholder that calls
+  into Oboe (`oboe::convertToText`), proving the dependency actually links rather than just resolving.
+  This is *not* the real capture engine — see Stage 2 step 2 below.
+- Verified via a clean `assembleDebug`: `liboboe.so`, `libc++_shared.so`, and `liboverdub_harness.so`
+  all land in the APK for both ABIs; Tier 1 unit tests still pass. No device needed for this step.
+
+**Not started — Stage 2 steps 2+ (needs a physical device):**
+- The Oboe/CMake/JNI full-duplex native audio engine itself (Components §2's output/input stream
+  setup, playback-volume pinning, XRun logging, on-device sanity gate) — `native_bridge.cpp` above
+  is only a linkage placeholder, not this.
 - The condition-sweep driver (Components §3).
 - Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
   implemented and gated (see "Sequencing dependencies" above), so this is no longer blocked on
@@ -247,10 +259,7 @@ covers only the capture-and-measure step for a single device.
 
 In rough dependency order, picking up from "Implementation status" above:
 
-1. **Wire NDK/CMake into `harness/build.gradle.kts`** (`externalNativeBuild`/`ndkVersion` pointing
-   at the already-installed NDK 28.2.13676358 and CMake 3.31.6) and add Oboe as a dependency —
-   Google's prefab-packaged AAR (`com.google.oboe:oboe`) is the default choice over vendoring Oboe's
-   source directly, unless a concrete reason to vendor turns up.
+1. ~~**Wire NDK/CMake into `harness/build.gradle.kts`**~~ — done (see "Implementation status" above).
 2. **Implement the full-duplex native engine + JNI bridge** per Components §2 (output/input stream
    setup, `InputPreset::VoiceRecognition`, `setPreferredDevice()` speaker/mic forcing, the lock-free
    ring buffer, playback-volume pinning, XRun logging, the on-device RMS sanity gate) — reusing the
