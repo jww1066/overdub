@@ -1,7 +1,7 @@
 # Collaborative Overdub App — Design Discussion Summary
 
 ## Core concept
-An Android app for musical collaboration: one person records audio (e.g., beatboxing), sends it via standard sharing (messaging apps), a second person overdubs on top (e.g., rapping), and can forward the result further. Use case is hip-hop specifically (rap + sung hooks), with other musical applications possible.
+An Android app for musical collaboration: one person records audio (e.g., beatboxing, singing), sends it via standard sharing (messaging apps), a second person overdubs on top (e.g., rapping, harmonized/counterpoint singing), and can forward the result further
 
 ## Prior art check
 No existing app matches this exact model — record locally, share via native OS share sheet, recipient overdubs and re-shares the same way, no central server/social feed required.
