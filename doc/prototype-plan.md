@@ -13,6 +13,19 @@ The design doc lists several open items: pre-roll buffer sizing, `AcousticEchoCa
 
 If (1) fails, your measured latency offset is meaningless regardless of alignment method. If (2) fails, the no-calibration bleed-based approach doesn't hold and you're back to reconsidering USB-C or an explicit calibration step. Everything else in the design doc is contingent on these two holding up.
 
+**Addendum (2026-07-05):** a documentation review surfaced a gap neither test above covers —
+headphone monitoring breaks the bleed mechanism entirely, since it removes the acoustic path Test 2
+depends on (see design-summary.md's "Headphone monitoring gap and alignment alternatives"). Test 1a
+below adds a third, cheap validation for the most promising fix: trusting AAudio/Oboe's own reported
+latency instead of requiring bleed at all. It's the first of the three to run — it reuses Test 1's
+rig rather than needing new device-routing machinery, and if it holds up, it removes the
+bleed-dependency question for headphone sessions rather than working around it.
+
+The same review surfaced a second, independent gap: neither test addresses whether per-hop alignment
+error compounds across a multi-hop forwarding chain (see design-summary.md's "Chain-of-forwarding
+alignment error"). Test 3 (proposed) below is a synthetic Monte Carlo extension of Test 2's Python
+harness to check this, once real per-hop error data exists to drive it.
+
 ## Skills research (informs scope, not method)
 
 Checked whether any existing Claude Code skill covers this work before planning to hand-roll it. Searched three angles: general Android development skills, Android-specific audio/latency skills, and DSP/signal-processing skills.
@@ -34,6 +47,35 @@ Checked whether any existing Claude Code skill covers this work before planning 
 
 **Confidence:** High confidence this test design is correct — it mirrors Google's own recommended latency-measurement approach (OboeTester, per AOSP's audio latency documentation). Low confidence in what the result will be — the design doc already flags real A/V sync bugs (200–700ms) reported by Pixel 8/9 users as a different-but-adjacent failure mode, which is a signal, not a prediction.
 
+## Test 1a — AAudio self-reported latency accuracy (headphone-safe alignment path)
+
+**Priority: run this first.** Cheapest of the three to validate, and if it passes it removes the
+entire bleed-dependency question for headphone-wearing users rather than requiring a workaround.
+
+**Question:** Does AAudio/Oboe's own reported stream latency (timestamps against the shared audio
+clock) match the ground-truth round-trip latency measured by the physical loopback, closely enough
+to use directly as the alignment offset — with no dependence on any acoustic bleed signal?
+
+**Setup:** The same loopback rig as Test 1 (physical clap/click track through a loopback cable) — no
+new hardware. Log `AAudioStream_getTimestamp()` (or Oboe's equivalent) alongside the
+ground-truth offset already being measured for Test 1, across whatever output routes are available
+(built-in speaker, wired headset, Bluetooth if on hand).
+
+**Method:** For each of the ~20 repetitions Test 1 already runs, record both numbers side by side —
+the loopback-measured ground truth and AAudio's self-reported latency. Compare across routes: does
+the discrepancy (if any) stay consistent, or does it change meaningfully between speaker and
+headphone output? Repeat on a second device if available, since the design doc's one documented
+counter-example (moto g(20)) was device-specific, not universal.
+
+**What this answers:** Whether trusting platform-reported latency is viable as the primary
+mechanism (making Test 2's bleed correlation unnecessary for headphone sessions), or only viable as
+a rough estimate needing bleed-based correction on top, or not viable at all (falling back to the
+forced-speaker calibration chirp or adaptive hybrid from design-summary.md's alternatives list).
+
+**Confidence:** Low confidence either way — the design doc's rejection of this approach rested on a
+single anecdotal report, not a systematic test, so this is a genuinely open question rather than one
+with a directional prior.
+
 ## Test 2 — Single-device bleed + offline alignment
 
 **Question:** Does GCC-PHAT recover a clean, usable alignment peak from real phone-speaker-to-phone-mic bleed, or does real-world SNR fall below what the algorithm needs?
@@ -51,6 +93,31 @@ Checked whether any existing Claude Code skill covers this work before planning 
 
 **Second phone:** optional, lower priority. Only add it if step 2 passes and you want an early read on cross-device portability before further investment.
 
+## Test 3 (proposed) — Multi-hop alignment drift simulation
+
+**Question:** Do independent per-hop alignment errors compound across a chain of overdubs
+(A→B→C→D...) into audible drift by the last track, even if raw stems (not a flattened mix) are
+forwarded at every hop?
+
+**Setup:** Pure synthetic, extends Test 2 step 1's Python harness — no phone needed. Model each hop's
+alignment error as an independent random draw from the error distribution characterized empirically
+by Test 1a/Test 2 (once that data exists), or from a range of plausible values as a placeholder if
+not. Simulate chains of N hops (e.g. N = 2 through 6) and track the cumulative worst-case offset
+between the earliest and latest track across many simulated chains (Monte Carlo, 1000+ trials per
+chain length).
+
+**What this answers:** Whether the "always forward raw stems" mitigation
+(design-summary.md's "Chain-of-forwarding alignment error") is sufficient on its own, or whether a
+chain of even small per-hop errors accumulates past an audible threshold (e.g. ±10–20ms) at
+realistic chain lengths — which would mean either a stricter per-hop accuracy requirement, or an
+explicit re-alignment step against the *original* reference at some point in the chain (rather than
+only against the immediately-prior track).
+
+**Confidence:** High confidence the simulation approach itself is sound — standard
+error-propagation/Monte Carlo exercise. Low confidence in the outcome — no data yet on the actual
+per-hop error distribution, so this test's realistic inputs aren't known until Test 1a/Test 2 run
+first. **Sequencing: run last of the four**, since it consumes their output.
+
 ## Explicitly out of scope for this prototype
 
 - Lead-in / count-in UX
@@ -58,9 +125,11 @@ Checked whether any existing Claude Code skill covers this work before planning 
 - Sharing/forwarding flow
 - Pre-roll buffer sizing
 - Onset detection
+- Forced-speaker calibration chirp / adaptive hybrid routing (headphone fallback) — deferred pending Test 1a's result
+- Explicit re-alignment/correction against the original reference mid-chain (multi-hop drift fallback) — deferred pending Test 3's result
 
-None of these matter if Test 1 or Test 2 fails, and building them now would be scope creep against the design doc's own stated priorities.
+None of these matter if Test 1, Test 1a, Test 2, or Test 3 fails, and building them now would be scope creep against the design doc's own stated priorities.
 
 ## Realistic timeline
 
-A few days each for Test 1 and Test 2, for someone comfortable with Kotlin/NDK and basic Python signal processing. Not a confident estimate — I don't know your familiarity with Oboe specifically or whether device access is immediately available, and haven't seen either test run to calibrate against.
+A few days each for Test 1 and Test 2, for someone comfortable with Kotlin/NDK and basic Python signal processing. Test 1a adds relatively little on top of Test 1 since it reuses the same rig — mostly just logging and comparing an extra number per run. Test 3 is a half-day to a day once Test 1a/Test 2 produce real error data to drive it (it's pure Python, no device time needed). Not a confident estimate — I don't know your familiarity with Oboe specifically or whether device access is immediately available, and haven't seen any of these tests run to calibrate against.
