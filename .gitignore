@@ -39,6 +39,14 @@ env/
 .ruff_cache/
 .ipynb_checkpoints/
 
+# Audio files -- never commit these, even test/placeholder assets; generate locally instead
+*.wav
+*.flac
+*.mp3
+*.aac
+*.ogg
+*.m4a
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

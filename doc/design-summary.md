@@ -56,6 +56,47 @@ direct message attachment.**
   a working link, unlike an instant local-file share — a real, if probably minor, UX cost compared to
   the original all-local design, not yet measured.
 
+## Deep linking and app handoff (added 2026-07-05)
+
+**Problem:** flagged by an external design critique (`glm-critique.txt`, since deleted after
+triage) — none of the decisions above say what actually happens when a recipient taps the shared
+cloud-storage link. A raw `drive.google.com/...` link isn't a URL this app can register as an App
+Link handler for (Android App Links require verified ownership of the link's domain via
+`assetlinks.json`; this app doesn't own Google Drive's domain), so by default the OS opens it in a
+browser or the Drive app, not this app. Every other decision so far assumes the file "arrives" in
+the app somehow, without saying how.
+
+**Two distinct cases, likely needing different answers:**
+1. **Recipient already has the app installed** — the common case for an established chain past the
+   first hop. Doesn't need the cloud link or any deep-linking machinery at all: Android's native
+   share sheet already lists any installed app declaring an `ACTION_SEND`/`ACTION_SEND_MULTIPLE`
+   intent filter for the relevant MIME type as a direct share target. If User A shares straight to
+   the Overdub app (rather than to a messaging app), the raw stem files transfer app-to-app with no
+   intermediate cloud upload, no transcoding risk, and no link-tapping ambiguity — simpler than the
+   cloud-link path for this case, and worth exposing as the preferred option in the share sheet
+   whenever the target device has the app. This doesn't replace the cloud-storage decision above
+   (still needed when the destination is a messaging app / unknown recipient), it's a faster path
+   layered on top of it.
+2. **Recipient doesn't have the app installed yet** — the cloud-link path is necessary here since
+   there's no app to receive an app-to-app share into. Two sub-options, neither committed to yet:
+   - **Manual friction, no new infrastructure:** the link opens in a browser/Drive app as-is; the
+     recipient downloads the file, then manually uses "Open with → Overdub" to import it. Consistent
+     with "no central server," but adds real friction right at first-touch, the worst place for it.
+   - **Owned-domain App Link + static landing page:** wrap the cloud-storage link behind a domain
+     this app controls (e.g. `overdub.app/collab/<id>` redirecting to the actual storage URL), with
+     `assetlinks.json` verification so Android opens the app directly if installed, or a static
+     (no-backend-compute) landing page with a Play Store button if not. Costs owning a domain and
+     hosting a static redirect/landing page — more than "zero infrastructure" but well short of an
+     app-specific backend/social feed, so it doesn't reverse the "no central server" differentiation
+     from centralized layering apps (SoundStorming, Trackd, BandLab, Soundtrap) established in
+     "Prior art check" above.
+
+**Decision: not yet made.** Recorded as an open item rather than resolved here, since it's a product
+decision (how much onboarding friction is acceptable) more than a technical one, and doesn't gate
+the load-bearing alignment questions `prototype-plan.md`'s tests are validating. Option 1
+(app-to-app direct share) has no real downside and should likely be built regardless of how the
+first-touch/no-app-yet case is eventually resolved.
+
 ## Latency
 No authoritative published round-trip latency number exists for the Pixel 10 specifically — Google's official AOSP latency table stops at 2016-2017 Pixel/Pixel XL devices (18ms under ideal conditions). Best available reference points:
 - Google reported ~39ms average round-trip latency across popular Android phones in 2021; 20ms is the CDD "Pro Audio" requirement; 10ms is the long-term target.

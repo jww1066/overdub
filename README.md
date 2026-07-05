@@ -52,7 +52,8 @@ further work.
 
 Explicitly deferred pending real usage data or further investigation (see
 [`doc/design-summary.md`](doc/design-summary.md) for details): pre-roll buffer sizing, echo
-cancellation quality on real music content, and USB Audio Class consistency across Android OEMs.
+cancellation quality on real music content, USB Audio Class consistency across Android OEMs, and how
+a recipient without the app yet actually gets a shared file into it (deep linking / app handoff).
 
 ## Repo layout
 

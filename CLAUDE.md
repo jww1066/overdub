@@ -147,6 +147,13 @@ only a test whose `@Rule` launches the Activity does.
   `NoSuchMethodException: android.hardware.input.InputManager.getInstance []`. If this resurfaces
   after an OS bump, bump `espresso-core` before assuming new tests themselves are broken.
 
+## Repo hygiene
+
+- **Never commit audio files** (`.wav`, `.flac`, `.mp3`, `.aac`, `.ogg`, `.m4a`) to Git, including
+  test/placeholder assets — they're gitignored. If a component needs a bundled audio asset (e.g.
+  the Test 2 harness's reference track), check in a script that generates it locally instead of the
+  binary itself, with a README noting it must be (re)generated after a fresh checkout.
+
 ## Workflow for staged/incremental work
 
 1. Implement the change.
