@@ -172,7 +172,25 @@ Python) so dependency versions stay pinned.
   SNR sweep, a metric over a capture set) belongs in `analysis/scripts/` as a real file with
   argparse and a docstring, so it's re-runnable as the code or data changes and can be checked in.
   A `python -c "..."` that prints a finding evaporates with the shell session and has to be
-  rewritten from scratch next time. The `sweep_snr_floor.py` script is the template.
+  rewritten from scratch next time. The `sweep_snr_floor.py` script is the template. This applies
+  even to a quick ad-hoc edge-case check mid-task (e.g. spot-checking a function's behavior while
+  reviewing code) — the impulse to verify a hunch inline is exactly the case this rule targets, not
+  just deliberate analysis work.
+- **Validate a DSP-parameter concern empirically before changing it, not by guessing.** When a
+  default (e.g. a PSR exclusion window, a filter cutoff) is suspected to be miscalibrated against
+  the actual signal shape, write a small diagnostic script that measures the real quantity (e.g.
+  `measure_main_lobe_width.py` printing correlation magnitude around the peak) rather than
+  reasoning about it in the abstract or "fixing" it speculatively — the measurement can just as
+  easily show the original default was fine. Same spirit as "Diagnose before re-implementing" above,
+  applied to offline DSP analysis instead of on-device audio behavior.
+- **Python negative-slice gotcha:** a slice bound computed as `len - k` silently changes meaning if
+  it goes negative — `out[: n - k]` is `out[:5]` when `n - k == 5`, but becomes `out[:-3]` (a large
+  *positive*-length slice from the start, not an empty one) when `n - k == -3`. This bit
+  `synth.py`'s `delay()`: for `abs(d) >= len(signal)` the computed bound went negative and the slice
+  silently selected the wrong range instead of being empty, surfacing as a confusing
+  `numpy` broadcast-shape `ValueError` rather than a clear error or correct result. When a slice
+  bound is arithmetic (not a literal), explicitly guard the case where it could go negative rather
+  than trusting Python's negative-index reinterpretation to do the right thing.
 
 ## Workflow for staged/incremental work
 
