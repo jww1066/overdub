@@ -14,14 +14,42 @@ Two things this step depends on aren't ready yet, but neither blocks *building* 
   measurement." The loopback rig has been ordered but hasn't arrived, so that ground truth doesn't
   exist yet. This blocks *judging* captured data, not capturing it — the harness, its reference
   track, and all automated tests below can be built and run now.
-- **Test 2 step 1 (Python GCC-PHAT).** `analysis/src/overdub_analysis/__init__.py` is currently
-  empty. The synthetic validation gate ("is the code correct before using it to map anything") needs
-  to pass before running it against real captures means anything. Build it in parallel; don't block
-  harness work on it.
+- **Test 2 step 1 (Python GCC-PHAT).** Now implemented and passing its synthetic-validation gate
+  (`analysis/src/overdub_analysis/gcc_phat.py` + `synth.py`, 14 pytest cases green; 6 dB PSR floor
+  ≈ −30 dB SNR for a broadband click train via `analysis/scripts/sweep_snr_floor.py`). The
+  "is the code correct before using it to map anything" gate is met, so running real captures
+  through it will be meaningful once they exist.
 
 Net effect: everything in this doc up through "capture files exist on disk with correct
 metadata" can proceed today. Only the final pass/fail judgment against real data waits on the two
 items above.
+
+## Implementation status (2026-07-05)
+
+**Done — Stage 1 (Gradle scaffold + Tier 1, no device/NDK needed):**
+- Root Gradle project and a new `:harness` module (`com.overdub.harness`) exist at the repo root —
+  first Android code in the repo, per Components §2.
+- Four of the pure-Kotlin pieces from Components §2/§3 are implemented and unit-tested (Tier 1,
+  all passing): `wav/WavWriter.kt`, `metadata/ConditionMetadata.kt` (kotlinx.serialization JSON),
+  `condition/ConditionMatrix.kt` (the fixed 36-condition matrix from Components §3), `dsp/Rms.kt`.
+- A synthetic placeholder reference track (a generated click track, *not* a real beatbox
+  recording) exists via `harness/scripts/generate_reference_track.py`, so the eventual
+  playback/capture pipeline has something to play immediately — see the caveat in Components §1
+  below; this still needs to be swapped for a real recording before Tier 3 runs.
+- NDK 28.2.13676358 and CMake 3.31.6 are installed (via `sdkmanager`) but not yet wired into
+  `harness/build.gradle.kts` — prep for Stage 2, below.
+
+**Not started — Stage 2 (needs the NDK, and eventually a physical device):**
+- The Oboe/CMake/JNI full-duplex native audio engine (Components §2's output/input stream setup,
+  playback-volume pinning, XRun logging, on-device sanity gate).
+- The condition-sweep driver (Components §3).
+- Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
+  implemented and gated (see "Sequencing dependencies" above), so this is no longer blocked on
+  it; it's blocked on having real captures to feed through the validated implementation.
+- All Tier 2 (instrumented) and Tier 3 (manual on-device) tests below — none of these have run
+  since no native capture code exists yet and no physical device has been used against this repo.
+
+See "Next steps," at the end of this doc, for the concrete sequencing of the above.
 
 ## Components to build
 
@@ -32,6 +60,12 @@ native output sample rate (queried via `AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE
 audio pipeline guidance — don't hardcode 44.1/48kHz). Reuse whatever rate Test 1 confirms as the
 device's native rate, so ground-truth and real-bleed data aren't confounded by a resampling
 mismatch between tests.
+
+**Status:** a synthetic placeholder (click track, not a real recording) exists today via
+`harness/scripts/generate_reference_track.py`, gitignored and regenerated locally rather than
+committed (audio files are never committed to this repo — see `CLAUDE.md`). It unblocks pipeline
+work but must be replaced with an actual beatbox recording at the confirmed native sample rate
+before Tier 3's real condition sweep is run.
 
 ### 2. Android capture harness (new Gradle module — first Android code in this repo)
 
@@ -208,3 +242,26 @@ volume"), not grounds to fail the test outright.
 Echo cancellation, onset detection, cross-device variance (second phone), and chain-of-forwarding
 drift (Test 3) are all out of scope here, per `prototype-plan.md`'s existing scoping — this plan
 covers only the capture-and-measure step for a single device.
+
+## Next steps (Stage 2)
+
+In rough dependency order, picking up from "Implementation status" above:
+
+1. **Wire NDK/CMake into `harness/build.gradle.kts`** (`externalNativeBuild`/`ndkVersion` pointing
+   at the already-installed NDK 28.2.13676358 and CMake 3.31.6) and add Oboe as a dependency —
+   Google's prefab-packaged AAR (`com.google.oboe:oboe`) is the default choice over vendoring Oboe's
+   source directly, unless a concrete reason to vendor turns up.
+2. **Implement the full-duplex native engine + JNI bridge** per Components §2 (output/input stream
+   setup, `InputPreset::VoiceRecognition`, `setPreferredDevice()` speaker/mic forcing, the lock-free
+   ring buffer, playback-volume pinning, XRun logging, the on-device RMS sanity gate) — reusing the
+   already-built `WavWriter`, `ConditionMetadata`, and `Rms` from Stage 1 on the Kotlin side of the
+   bridge rather than duplicating that logic in C++.
+3. **Build the condition-sweep driver** (Components §3) against the already-built
+   `generateConditionMatrix()`.
+4. **Write and run the Tier 2 instrumented tests** — needs a connected physical device; none is
+   connected as of this writing, so this step is blocked until one is available.
+5. **Replace the synthetic placeholder reference track** with a real clean, dry beatbox recording
+   before any Tier 3 work.
+6. **Tier 3 manual checkpoints and Components §4's data-pull/analysis integration** — the latter
+   needs real captures to feed through the now-implemented Python GCC-PHAT (`analysis/`), so it's
+   blocked on items 2–4 above, not on step 1.

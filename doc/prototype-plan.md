@@ -138,6 +138,20 @@ with a directional prior.
 1. **Synthetic validation first, on Windows.** Inject known delays and controlled noise levels into a clean signal using Python (`scipy.signal.correlate` plus an FFT-based phase transform for the GCC-PHAT weighting). Confirm the implementation recovers the correct offset and map out the theoretical SNR floor where it starts to fail. This is pure software — no phone needed — and isolates "is the code correct" from "does the physical setup work."
 2. **Real-bleed recording, one phone.** Record the clean beatbox track, then have the same phone play it back through its speaker while recording the overdub through its mic. Vary playback volume and phone orientation/distance from any obstruction to map where the correlation peak degrades. Run the validated GCC-PHAT implementation from step 1 against this real data.
 
+**Implementation status (2026-07-05):** step 1's Python GCC-PHAT is implemented and its
+synthetic-validation gate passes (`analysis/src/overdub_analysis/gcc_phat.py` +
+`synth.py`, 14 pytest cases green). At high/clean SNR (30 dB ≥ the 20 dB bar) the recovered
+offset is within ±1 sample of the injected delay and PSR ≥10 dB; the 6 dB PSR floor for a
+broadband periodic click train sits at ≈ −30 dB SNR (run
+`analysis/scripts/sweep_snr_floor.py` to reproduce) — far below any realistic phone-bleed SNR,
+a strong positive finding for this signal class. The synthetic fixtures double as the
+port-correctness regression tests the 093038 review asked for when the algorithm is later
+ported to Kotlin/C++. Step 2's Android capture harness has its Gradle scaffold and pure-Kotlin
+pieces built (Stage 1 of `test2-step2-plan.md`); the Oboe native capture engine, condition-sweep
+driver, and all on-device testing are not yet built — see
+[`test2-step2-plan.md`](test2-step2-plan.md)'s "Implementation status" and "Next steps" sections
+for full detail. Step 2 has not run against real data yet.
+
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
 **Pass/fail threshold:**

@@ -10,10 +10,21 @@ harmonized singing, and many other musical collaboration patterns.
 
 ## Status
 
-Pre-implementation. The design direction is set (see below) but its two load-bearing technical
-assumptions are unverified on real hardware — see [`doc/prototype-plan.md`](doc/prototype-plan.md)
-for the two narrow validation tests that need to pass before any further engineering (UI, sharing
-flow, echo cancellation, lead-in UX) is worth building.
+Design direction is set (see below), but its two load-bearing technical assumptions are still
+unverified on real hardware — see [`doc/prototype-plan.md`](doc/prototype-plan.md) for the two
+narrow validation tests that need to pass before any further engineering (UI, sharing flow, echo
+cancellation, lead-in UX) is worth building.
+
+First implementation work has started on Test 2. The Python half (step 1, synthetic GCC-PHAT
+validation) is implemented and passing its correctness gate in [`analysis/`](analysis/) — at high
+SNR the recovered offset is within ±1 sample of the injected delay with PSR ≥10 dB, and the 6 dB
+PSR floor sits at ≈ −30 dB SNR for a broadband click train (reproduce with
+`analysis/scripts/sweep_snr_floor.py`). The Android half (step 2, real-bleed capture) has its
+Gradle project and `:harness` module plus the pure-Kotlin pieces (WAV writer, condition metadata,
+condition matrix, RMS calculation) built and unit-tested (see
+[`doc/test2-step2-plan.md`](doc/test2-step2-plan.md) for full status); the Oboe/NDK native capture
+engine and all on-device testing are still to come — nothing has been verified on a physical
+device yet.
 
 ## Design highlights
 
