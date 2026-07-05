@@ -42,6 +42,21 @@ For anything warmup-sensitive, run the specific test *cold and in isolation* (si
 trusting the pass — don't let ordering hide a startup defect that a real cold-start run in the field
 will hit.
 
+**A green instrumented suite on one device is a favorable-case existence proof, not a population
+guarantee.** Low-latency capture numbers (XRun-free, bleed SNR/RMS, whether LowLatency/Exclusive is
+granted, native rate/burst size) are gathered on whatever phone is on the desk, and a reference-grade
+device (a Pixel, clean near-AOSP audio stack) is close to a *best case* — generalizing its numbers
+downward to budget or heavy-OEM-skin hardware should be expected to get worse, not better. Split what
+you claim: the algorithm and the pass/fail *criteria* generalize (device-independent, ideally
+validated with a no-device synthetic gate); whether real hardware clears them does not. The single
+biggest cross-device wildcard for a capture path is whether the OEM actually honors the requested
+low-processing `InputPreset` (e.g. `VoiceRecognition`) — residual AGC/NS silently auto-compensates
+level and flattens any SNR gradient you're trying to measure. It's directly detectable (play a fixed
+tone at two known gains, check whether captured RMS preserves the gain ratio or compresses it) and
+worth probing before trusting a sweep on a new device. Log `device_model`/`sample_rate`/`input_preset`/
+`xrun` into each capture's metadata so re-measuring on another device is "run it again, compare
+tables," not a rewrite.
+
 ## Diagnose before re-implementing
 
 When an on-device test reports unexpected behavior, don't jump straight to a second implementation

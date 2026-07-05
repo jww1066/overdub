@@ -1,6 +1,7 @@
 package com.overdub.harness.condition
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -53,5 +54,25 @@ class ConditionMatrixTest {
         assertEquals(Distance.ARMS_LENGTH, BASELINE_CONDITION.distance)
         assertEquals(Orientation.FACE_UP, BASELINE_CONDITION.orientation)
         assertEquals(Obstruction.NONE, BASELINE_CONDITION.obstruction)
+    }
+
+    @Test
+    fun `conditionFromId round-trips every cell's id back to that cell`() {
+        for (condition in generateConditionMatrix()) {
+            assertEquals(condition, conditionFromId(condition.conditionId))
+        }
+    }
+
+    @Test
+    fun `conditionFromId resolves the baseline id to the baseline condition`() {
+        assertEquals(BASELINE_CONDITION, conditionFromId(BASELINE_CONDITION.conditionId))
+    }
+
+    @Test
+    fun `conditionFromId returns null for an id not in the matrix`() {
+        assertNull(conditionFromId("bogus_id"))
+        // Well-formed shape but non-existent axis values must not resolve either.
+        assertNull(conditionFromId("whisper_near_faceup_none"))
+        assertNull(conditionFromId(""))
     }
 }

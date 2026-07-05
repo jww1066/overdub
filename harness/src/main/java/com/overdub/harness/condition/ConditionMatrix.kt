@@ -54,3 +54,12 @@ fun generateConditionMatrix(): List<Condition> =
             }
         }
     }
+
+/**
+ * Resolves a `conditionId` string (as passed to the sweep driver via the `-e condition <id>`
+ * instrumentation argument, Components §3) back to its [Condition], or null if it doesn't name a cell
+ * in the 36-condition matrix. Resolution goes through [generateConditionMatrix] rather than splitting
+ * the string, so an unknown/typo'd id is a clean null instead of a half-parsed Condition.
+ */
+fun conditionFromId(id: String): Condition? =
+    generateConditionMatrix().firstOrNull { it.conditionId == id }

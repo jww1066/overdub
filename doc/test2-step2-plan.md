@@ -89,8 +89,13 @@ items above.
   so stream-open in LowLatency/Exclusive, the speaker-route hold, XRun behavior, and whether bleed
   clears the sanity floor are all untested. That is exactly what Tier 2/3 below exist to check.
 
-**Not started — Stage 2 steps 3+ (needs a physical device):**
-- The condition-sweep driver (Components §3).
+**Done — Stage 2 step 3 (condition-sweep driver, code + build only; the sweep itself needs a device):**
+- `ConditionSweepTest.kt` (the driver) and `conditionFromId()` (Tier-1-tested id→cell lookup) are
+  written and build-verified. The physical positioning protocol and the distance-axis referent are now
+  pinned in Components §3, and the cross-device meaning of the Pixel 10 numbers is documented (see
+  "Cross-device generalization" below). The *manual* 36-cell on-device sweep has not run.
+
+**Not started — Stage 2 steps 4+ (needs a physical device):**
 - Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
   implemented and gated (see "Sequencing dependencies" above), so this is no longer blocked on
   it; it's blocked on having real captures to feed through the validated implementation.
@@ -204,11 +209,60 @@ volume (0.6), arm's length, face-up, unobstructed.
   consistent with `CLAUDE.md`'s standing rule not to fake real acoustic/physical conditions in
   automated tests.
 
+**Physical setup and positioning protocol.** Because playback and capture are on the *same* phone,
+the speaker↔mic spacing is fixed by the chassis and the *direct* bleed path never changes — the four
+axes vary the *reflected/reverberant and mechanically-coupled* component layered on top of it. That
+makes the `distance` axis ambiguous unless its referent is pinned, so it is fixed here:
+
+- **Distance referent:** `distance_cm` is the distance from the phone to the nearest large reflecting
+  surface (wall, or the operator's body), measured with a tape, the phone otherwise in free air on a
+  stand/tripod. "Near" (~15cm) is a strongly-reflective placement, "far" (~2m) a near-anechoic one —
+  that reflection/reverberation gradient is what this axis maps. (It is *not* varying speaker↔mic
+  distance; that is fixed on a single device.)
+- **Orientation:** face-up = speaker/mic firing into open air; face-down = firing into the resting
+  surface (on the Pixel 10's bottom + earpiece speakers this couples strongly into whatever it rests
+  on).
+- **Obstruction — pocketed:** one consistent denim/fabric layer laid over the phone (same fabric,
+  same layer count, same coverage every run), not an actual worn garment — a worn pocket is too
+  variable to reproduce.
+- **Volume:** nothing physical — it is the programmatic gain (0.2 / 0.6 / 1.0) with `STREAM_MUSIC`
+  pinned to max. The operator must **not touch the volume rocker** during the sweep, or the pinned
+  index desyncs from `stream_volume_index` in the metadata and the volume axis stops being
+  reproducible.
+
+**Environmental assumptions held constant across all 36 cells** — the matrix deliberately varies four
+things, so everything else must be constant or the cells aren't comparable to each other or to the
+baseline: same room (reverb geometry is a hidden variable that would confound the distance axis),
+stable low ambient noise floor (a passing noise burst quietly lowers *that* capture's SNR, and the RMS
+sanity gate assumes a steady floor), no other audio sources, the same resting-surface material, the
+phone physically still during capture (a stand beats a hand — handling noise adds non-reproducible
+energy the correlation then has to fight), and **no headset connected** (the baseline sweep assumes
+built-in-speaker routing; `output_route` in metadata is the check that this held — the
+headset-override case is a separate Tier-2 test, not part of the 36-cell sweep).
+
+**Operator loop per cell:** (1) physically arrange the phone for the condition — the only manual step;
+(2) trigger the run (`adb shell am instrument -e condition <id> ...`); (3) watch `adb logcat` for the
+`RESULT`/RMS sanity line — the relied-upon feedback channel, since a facedown/pocketed phone can't
+show a toast; (4) if the RMS reads as silence or the placement was fumbled, retry — timestamped
+filenames (`{condition_id}_{timestamp}`) mean a retry never overwrites the bad attempt, so both
+survive for comparison.
+
 ### 4. Data pull + analysis integration
 
-- `adb pull` the WAV+JSON pairs off-device to a working directory under `analysis/`.
-- Once Test 2 step 1 lands, feed each file through the validated GCC-PHAT implementation, recording
-  PSR and recovered offset per condition into a results table alongside each file's metadata.
+- `adb pull` the WAV+JSON pairs off-device to a working directory under `analysis/`. Verified working
+  on the Pixel 10 (2026-07-05):
+  `adb pull /sdcard/Android/data/com.overdub.harness/files/sweep <dest>` pulls the pairs directly —
+  the harness installs to the **personal profile (user 0)** by default and its app-private external
+  dir is shell-readable and pullable (no scoped-storage or work-profile obstacle). **The one real
+  gotcha: `gradlew connectedAndroidTest` uninstalls the harness on completion, which wipes app-private
+  storage and deletes the captures.** So drive the real sweep with `am instrument` against a
+  persistently installed app+test APK (`adb install -r` both, then
+  `adb shell am instrument -w -e condition <id> -e class ...ConditionSweepTest#sweepOneCondition
+  com.overdub.harness.test/androidx.test.runner.AndroidJUnitRunner`), not the gradle connected-test
+  task, or the data is gone before it can be pulled.
+- Once real captures exist, feed each file through the validated GCC-PHAT implementation
+  (`analysis/`), recording PSR and recovered offset per condition into a results table alongside each
+  file's metadata.
 
 ## Test plan
 
@@ -285,6 +339,38 @@ condition must clear PSR ≥ 6dB and recovered offset within ±2ms of Test 1's l
 Edge-condition failures are documented as UX constraints (e.g., "app enforces a minimum playback
 volume"), not grounds to fail the test outright.
 
+## Cross-device generalization of the Pixel 10 results
+
+The Tier-2 numbers above (zero XRuns after the warmup fix, baseline capture RMS ~320-340, 48000 Hz /
+96-frame bursts, streams granted `LowLatency`/`Exclusive`) are gathered on a *single* Pixel 10, and
+should be read as a **favorable-case existence proof, not a population estimate**. The Pixel is close
+to a best case for this approach — clean near-AOSP audio stack, well-behaved AAudio, good transducers,
+and (likely) honest `InputPreset` handling. `prototype-plan.md`'s Test 2 "Cross-device generalization"
+note carries the full analysis; the harness-specific points:
+
+- **What generalizes** is the algorithm and the pass/fail *criteria* — they're device-independent,
+  validated by the synthetic step 1 with no phone in the loop (the SNR→PSR mapping, ±1-sample accuracy,
+  the 6dB PSR floor, and the PSR≥6dB / offset-within-±2ms bars). The ±2ms bar is measured against
+  *that device's own* loopback ground truth, so it's self-relative and transfers even though the
+  absolute latency does not.
+- **What does *not* generalize** is whether a given device's real bleed clears that floor — an
+  empirical per-device question dominated by (a) speaker/mic hardware SNR (the Pixel 10's baseline RMS
+  is a Pixel-10 number) and, the bigger wildcard, (b) whether the OEM actually honors the requested
+  `InputPreset::VoiceRecognition`. Residual OEM AGC/NS would auto-compensate a quiet bleed and flatten
+  the very volume/distance SNR gradient this sweep exists to map. Secondary unknowns: whether
+  LowLatency/Exclusive is granted at all, the native sample rate (affects sample-count arithmetic, not
+  physics), and route-forcing quirks.
+- **The harness is already built to re-measure this with no code change:** the JSON sidecar logs
+  `device_model`, `sample_rate`, `input_preset`, `xrun_count`, and `stream_volume_index`, so pointing
+  the same sweep at a second device is "run it again, compare tables." Cross-device variance stays out
+  of scope for *this* step (single device, per `prototype-plan.md`), but the instrumentation is ready
+  and `armeabi-v7a` is already in the ABI filters for an older second phone.
+- **Proposed future diagnostic (not built here): an AGC-linearity probe.** Play a fixed tone at two
+  known gains (e.g. 0.3 and 0.9) and check whether captured RMS preserves the ~9.5dB ratio or
+  compresses it; compression = AGC still active on that device = its SNR-mapping is compromised. Worth
+  adding to the harness before trusting a *non-Pixel* sweep, since it isolates the single biggest
+  cross-device wildcard rather than discovering it from confusing PSR data later.
+
 ## What this doesn't cover
 
 Echo cancellation, onset detection, cross-device variance (second phone), and chain-of-forwarding
@@ -299,8 +385,17 @@ In rough dependency order, picking up from "Implementation status" above:
 2. ~~**Implement the full-duplex native engine + JNI bridge**~~ — code written and build-verified (see
    "Implementation status" above); still needs on-device verification, which happens as part of the
    Tier 2 instrumented tests in item 4 (no device connected yet, so that gate is open).
-3. **Build the condition-sweep driver** (Components §3) against the already-built
-   `generateConditionMatrix()`, driving `CaptureEngine.runCapture(condition, outputDir)` per cell.
+3. ~~**Build the condition-sweep driver**~~ (Components §3) — **code written and build-verified**
+   (`harness/src/androidTest/.../capture/ConditionSweepTest.kt` + a pure-Kotlin `conditionFromId()`
+   lookup in `ConditionMatrix.kt`, Tier-1 tested). One `am instrument -e condition <id>` invocation
+   drives one `CaptureEngine.runCapture(condition, outputDir)` cell into a persistent app-private
+   external `getExternalFilesDir("sweep")` directory (never a wiped cache dir; it's `adb pull`-able —
+   the one gotcha is that `gradlew connectedAndroidTest` uninstalls-and-wipes on completion, so run the
+   real sweep via `am instrument`, per Components §4); XRun/ring-overflow/non-speaker
+   route hard-fail as retry signals while a sub-floor RMS is recorded as an acceptable edge-cell
+   finding, not a failure. Still needs the *manual* 36-cell on-device sweep to actually run (the
+   per-cell physical positioning is the operator's job, per Components §3's positioning protocol) —
+   that is Tier-3 work below, gated on the real reference track (item 5).
 4. ~~**Write and run the Tier 2 instrumented tests**~~ — done and green on a real Pixel 10 (see
    "Implementation status" above), including the XRun diagnosis/fix that surfaced there.
 5. **Replace the synthetic placeholder reference track** with a real clean, dry beatbox recording

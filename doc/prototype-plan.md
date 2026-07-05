@@ -146,11 +146,14 @@ broadband periodic click train sits at ≈ −30 dB SNR (run
 `analysis/scripts/sweep_snr_floor.py` to reproduce) — far below any realistic phone-bleed SNR,
 a strong positive finding for this signal class. The synthetic fixtures double as the
 port-correctness regression tests the 093038 review asked for when the algorithm is later
-ported to Kotlin/C++. Step 2's Android capture harness has its Gradle scaffold and pure-Kotlin
-pieces built (Stage 1 of `test2-step2-plan.md`); the Oboe native capture engine, condition-sweep
-driver, and all on-device testing are not yet built — see
-[`test2-step2-plan.md`](test2-step2-plan.md)'s "Implementation status" and "Next steps" sections
-for full detail. Step 2 has not run against real data yet.
+ported to Kotlin/C++. Step 2's Android capture harness now has its Gradle scaffold, pure-Kotlin
+pieces, the Oboe full-duplex native capture engine (Tier-2 green on a real Pixel 10 as of
+2026-07-05 — zero XRuns after an input-warmup fix), and the condition-sweep driver all built
+(Stages 1–2 of `test2-step2-plan.md`). What remains: the *manual* 36-cell on-device sweep, swapping
+the synthetic placeholder reference for a real beatbox recording, and Components §4's data-pull into
+the (already-gated) Python GCC-PHAT — see [`test2-step2-plan.md`](test2-step2-plan.md)'s
+"Implementation status" and "Next steps" sections for full detail. Step 2 has not run against real
+bleed data yet, and its results are Pixel-10-specific (see "Cross-device generalization" below).
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
@@ -171,6 +174,50 @@ for full detail. Step 2 has not run against real data yet.
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 
 **Second phone:** optional, lower priority. Only add it if step 2 passes and you want an early read on cross-device portability before further investment.
+
+**Cross-device generalization (added 2026-07-05).** Test 2's on-device numbers are gathered on a
+single Pixel 10 (Tier-2 green as of 2026-07-05: zero XRuns, baseline capture RMS ~320-340,
+48kHz/96-frame bursts, `LowLatency`/`Exclusive` granted). It matters to be precise about what that does
+and doesn't establish for other Android hardware — two halves generalize differently:
+
+- **The algorithm and the pass/fail *criteria* generalize** (device-independent). GCC-PHAT's
+  correctness, the ±1-sample synthetic accuracy, and the 6dB PSR floor (≈−30dB SNR for a broadband
+  click train) come from the synthetic step 1 with no device in the loop, so the SNR→PSR mapping is a
+  property of the algorithm and signal class, not the phone. The PSR ≥ 6dB / offset-within-±2ms bars
+  are borrowed from TDOA practice, not fit to Pixel data, and the ±2ms bar is measured against *that
+  device's own* loopback ground truth, so the criterion is self-relative and transfers even though the
+  absolute latency does not.
+- **Whether real bleed clears that floor does *not* generalize** — an empirical per-device question
+  dominated by (a) speaker/mic hardware SNR (loudness, sensitivity, chassis geometry — the Pixel 10's
+  baseline capture RMS is a Pixel-10 number) and, the bigger wildcard, (b) OEM mic DSP. The harness
+  forces `InputPreset::VoiceRecognition` to suppress AGC/NS, but that's a *request* OEMs honor
+  inconsistently; residual AGC in particular auto-compensates a quiet bleed and flattens exactly the
+  volume/distance SNR gradient this sweep exists to map. Secondary per-device unknowns: whether
+  LowLatency/Exclusive is granted at all, the native sample rate (48kHz on Pixel — affects sample-count
+  arithmetic, not physics), and route-forcing quirks.
+
+**Direction of the bias:** the Pixel 10 is close to a *best case* for this approach (clean near-AOSP
+audio stack, well-behaved AAudio, good transducers, honest preset handling). A Pixel pass is therefore
+a favorable-case existence proof — "the approach and the code are sound, and it clears the bar on a
+good device" — and generalizing it downward to budget or heavy-OEM-skin hardware should be expected to
+get *worse*, not better. (Had it *failed* on Pixel, that would have been near-fatal for the bleed
+approach outright.) There's already adjacent evidence of device variance: the moto g(20) platform-
+latency counter-example (Test 1a) and the Pixel 8/9 200–700ms A/V-sync reports.
+
+**What establishing generalization would take:** re-run the same harness on a deliberate spread (a
+budget device, a heavy-skin device such as Samsung, a mid-tier), logging per device whether
+LowLatency/Exclusive is granted and at what rate/burst, the resulting bleed SNR/PSR vs. the Pixel
+baseline, and — most sharply — whether forcing VoiceRecognition actually disabled AGC (directly
+testable: play a fixed tone at two known gains and check whether captured RMS preserves the gain ratio
+or compresses it; compression = AGC still active = SNR-mapping compromised on that device). The
+harness's metadata already logs `device_model`, `sample_rate`, `input_preset`, `xrun_count`, and
+`stream_volume_index`, so it can be pointed at a second device with no code change.
+
+**Design consequence:** because generalization is gated on OEM behavior the app doesn't control, the
+product likely can't assume bleed-based alignment works on every device — it may need a device
+allowlist or a runtime bleed-SNR self-check. This is a large part of why Test 1a (trusting AAudio's
+self-reported latency, a more nearly device-agnostic mechanism) exists, and why the design contemplates
+per-route/per-device mechanism selection rather than one path for all hardware.
 
 ## Test 3 (proposed) — Multi-hop alignment drift simulation
 
