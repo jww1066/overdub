@@ -70,6 +70,13 @@ results:
 
 **Setup:** One Android device (any available — the goal is validating your implementation's behavior, not benchmarking a specific device against a published spec number, since no authoritative Pixel 10 latency figure exists anyway). Build the continuous-buffer capture/playback path using Oboe with `PerformanceMode::LowLatency` and `SharingMode::Exclusive` (per `developer.android.com/games/sdk/oboe/low-latency-audio`).
 
+**Hardware status (2026-07-05):** loopback rig ordered — a PassMark Audio Loopback Plug (TRRS)
+plus a Movo UCMA-2 USB-C-to-TRRS adapter, needed since the target device (Pixel 10) has no 3.5mm
+jack. This is a fully electrical loopback path (phone USB-C → UCMA-2 → PassMark plug), so no
+physical clap/acoustic signal is needed for this test — OboeTester generates and reads back its own
+test signal over the wired connection. Test 2's acoustic bleed test is unaffected by this and still
+uses the phone's built-in speaker/mic directly.
+
 **Method:** Loopback test — physical clap or a known click track through a loopback cable — repeated ~20 times. Check `AAudioStream_getXRunCount()` for buffer underruns on each run. Confirm the measured offset is stable across repetitions and doesn't drift when the lead-in and target recording are scheduled as one continuous stream vs. (as a negative control) two sequentially-scheduled players.
 
 **What this answers:** Direct yes/no on whether the "no scheduling seam" assumption holds. Doesn't require musical content or a second device.
