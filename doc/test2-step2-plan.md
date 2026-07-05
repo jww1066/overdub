@@ -93,7 +93,15 @@ items above.
 - `ConditionSweepTest.kt` (the driver) and `conditionFromId()` (Tier-1-tested id→cell lookup) are
   written and build-verified. The physical positioning protocol and the distance-axis referent are now
   pinned in Components §3, and the cross-device meaning of the Pixel 10 numbers is documented (see
-  "Cross-device generalization" below). The *manual* 36-cell on-device sweep has not run.
+  "Cross-device generalization" below).
+
+**In progress — the manual 36-cell Tier-3 sweep (2026-07-05):** the real reference track is now
+bundled (item 5 below), both APKs are installed persistently on the Pixel 10, and a reusable per-cell
+runner (`harness/scripts/run_sweep_cell.sh <id>`) drives one cell via `am instrument` and echoes its
+RESULT line. The sweep is organized as **12 physical arrangements × 3 programmatic volumes** (volume
+costs no phone movement, so the operator repositions 12 times, not 36). Trusted cells captured so far:
+**0/36** — the operator loop has been set up but no trusted cell has been captured yet (the only
+on-device capture is the earlier placeholder-track baseline verification).
 
 **Not started — Stage 2 steps 4+ (needs a physical device):**
 - Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
@@ -398,8 +406,13 @@ In rough dependency order, picking up from "Implementation status" above:
    that is Tier-3 work below, gated on the real reference track (item 5).
 4. ~~**Write and run the Tier 2 instrumented tests**~~ — done and green on a real Pixel 10 (see
    "Implementation status" above), including the XRun diagnosis/fix that surfaced there.
-5. **Replace the synthetic placeholder reference track** with a real clean, dry beatbox recording
-   before any Tier 3 work.
+5. ~~**Replace the synthetic placeholder reference track**~~ — **done (2026-07-05).** The real
+   `boots.wav` (repo root, 44.1kHz mono) is resampled to the device's native 48kHz mono/16-bit via
+   `analysis/scripts/resample_wav.py` (rational 160/147, anti-aliased) and bundled as
+   `harness/src/main/assets/reference_track.wav`; format gated with `analysis/scripts/inspect_wav.py`.
+   Neither `boots.wav` nor the bundled asset is committed (gitignored — audio never in Git). It is
+   5.89s (under Components §1's suggested 10-20s; fine for GCC-PHAT, just noted). See
+   `reference_track_README.md` for the regenerate-after-checkout command.
 6. **Tier 3 manual checkpoints and Components §4's data-pull/analysis integration** — the latter
    needs real captures to feed through the now-implemented Python GCC-PHAT (`analysis/`), so it's
    blocked on items 2–4 above, not on step 1.

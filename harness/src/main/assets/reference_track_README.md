@@ -1,15 +1,24 @@
-# reference_track.wav — placeholder
+# reference_track.wav — real reference recording (boots.wav)
 
-This is a **synthetic click track**, not a real beatbox recording: a 15s, 120bpm alternating
-kick/hihat click pattern at 48kHz/16-bit mono, generated with a stdlib-only Python script (no real
-performer, no real audio content).
+This is a **real recording** for the Test 2 condition sweep: `boots.wav` from the repo root,
+resampled to the Pixel 10's native rate (48kHz, 16-bit mono) via
+`analysis/scripts/resample_wav.py --rate 48000 --mono`. Source is 44.1kHz mono, 5.89s;
+the resample is rational (160/147, anti-aliased), so there is no fractional-rate error.
 
-It exists so the harness's playback/capture/WAV-write/metadata pipeline can be built and tested
-end-to-end before a real reference track is available. **Replace this file with an actual clean, dry
-beatbox recording** (per test2-step2-plan.md Components §1) before running the real condition sweep
-(Tier 3) — GCC-PHAT correlation quality and the pass/fail thresholds in `prototype-plan.md` are only
-meaningful against the real signal this app will actually use.
+Caveat: it is 5.89s, shorter than Components §1's suggested 10-20s. GCC-PHAT still correlates
+fine on a shorter clip (less averaging, not a correctness issue); noted here so the length is a
+known quantity, not a surprise.
 
-**Not committed to Git** (audio files never are — see `CLAUDE.md`). This file is gitignored; run
-`python harness/scripts/generate_reference_track.py` to (re)generate it locally after a fresh
-checkout, before building/running the harness.
+To (re)create after a fresh checkout (neither `boots.wav` nor this output is committed — audio
+files are never committed to this repo, see `CLAUDE.md`/memory):
+
+    cd analysis && .venv/Scripts/python.exe scripts/resample_wav.py \
+        ../boots.wav ../harness/src/main/assets/reference_track.wav --rate 48000 --mono
+
+Then confirm the format with:
+
+    .venv/Scripts/python.exe scripts/inspect_wav.py \
+        ../harness/src/main/assets/reference_track.wav --expect-rate 48000 --expect-channels 1 --expect-bits 16
+
+The synthetic placeholder click track (`harness/scripts/generate_reference_track.py`) is the
+fallback if `boots.wav` is unavailable, but the trusted Tier-3 sweep uses this real recording.
