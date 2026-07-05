@@ -41,7 +41,11 @@ adb shell am instrument -w -e condition "$COND" -e class "$CLASS#sweepOneConditi
 INSTR_STATUS=$?
 
 echo "--- OverdubSweep logcat ---"
-adb logcat -d -s OverdubSweep:I OverdubSweep:W | grep -E "RESULT|NOTE|===" || true
+# -s with one tag spec per tag (two specs on the SAME tag collapse to the last one's
+# level, e.g. "OverdubSweep:I OverdubSweep:W" silently filters down to W only and drops
+# the Info-level RESULT line). Use a single Verbose spec per tag. OverdubHarness carries
+# the SANITY line; OverdubSweep carries RESULT/NOTE/===.
+adb logcat -d -s OverdubSweep:V OverdubHarness:V | grep -E "RESULT|SANITY|NOTE|===" || true
 
 if [[ $INSTR_STATUS -ne 0 ]]; then
     echo "!!! am instrument returned $INSTR_STATUS -- treat as a hard-fail (reposition and retry this cell)"
