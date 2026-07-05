@@ -1,13 +1,15 @@
 # reference_track.wav — real reference recording (boots.wav)
 
 This is a **real recording** for the Test 2 condition sweep: `boots.wav` from the repo root,
-resampled to the Pixel 10's native rate (48kHz, 16-bit mono) via
-`analysis/scripts/resample_wav.py --rate 48000 --mono`. Source is 44.1kHz mono, 5.89s;
-the resample is rational (160/147, anti-aliased), so there is no fractional-rate error.
+brought to the Pixel 10's native rate (48kHz, 16-bit mono) via
+`analysis/scripts/resample_wav.py --rate 48000 --mono`. The current source is 48kHz mono,
+15.25s (732139 frames); since it is already at the target rate, the resample step copies it
+through with no rate change. (If a future source arrives at a different rate, the same script
+performs a rational, anti-aliased resample so there is no fractional-rate error.)
 
-Caveat: it is 5.89s, shorter than Components §1's suggested 10-20s. GCC-PHAT still correlates
-fine on a shorter clip (less averaging, not a correctness issue); noted here so the length is a
-known quantity, not a surprise.
+Length: 15.25s, within Components §1's suggested 10-20s window. The earlier 5.89s clip was
+blessed as "less averaging, not a correctness issue" for GCC-PHAT; the longer clip simply buys
+more averaging for a more confident offset/PSR.
 
 To (re)create after a fresh checkout (neither `boots.wav` nor this output is committed — audio
 files are never committed to this repo, see `CLAUDE.md`/memory):
