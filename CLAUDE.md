@@ -154,6 +154,26 @@ only a test whose `@Rule` launches the Activity does.
   the Test 2 harness's reference track), check in a script that generates it locally instead of the
   binary itself, with a README noting it must be (re)generated after a fresh checkout.
 
+## Python analysis tooling
+
+The `analysis/` package (Test 2 step 1's GCC-PHAT validation, and future offline DSP work) keeps
+its own venv at `analysis/.venv` so Python tooling doesn't collide with Gradle/Kotlin. Set it up
+with `cd analysis && python -m venv .venv && .venv/Scripts/python.exe -m pip install -e ".[dev]"`
+on Windows, and run `pytest` and scripts through `.venv/Scripts/python.exe` (not the system
+Python) so dependency versions stay pinned.
+
+- **Keep Python scripts ASCII-only.** The Windows console defaults to the cp1252 code page, so a
+  script printing a non-ASCII glyph (`≈`, `≥`, `−`) crashes with `UnicodeEncodeError` mid-run —
+  discovered when `sweep_snr_floor.py` printed `≈` and died *after* the full sweep had completed
+  but *before* printing the result. Use ASCII substitutes (`~`, `>=`, `-`) in script output, or
+  set `PYTHONUTF8=1` before running. This is the actual-failure cousin of the harmless LF→CRLF
+  `git add` warnings noted above.
+- **Write reusable scripts, not one-off `python -c` snippets.** Anything worth computing once (an
+  SNR sweep, a metric over a capture set) belongs in `analysis/scripts/` as a real file with
+  argparse and a docstring, so it's re-runnable as the code or data changes and can be checked in.
+  A `python -c "..."` that prints a finding evaporates with the shell session and has to be
+  rewritten from scratch next time. The `sweep_snr_floor.py` script is the template.
+
 ## Workflow for staged/incremental work
 
 1. Implement the change.
