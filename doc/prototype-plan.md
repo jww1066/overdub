@@ -35,6 +35,35 @@ Checked whether any existing Claude Code skill covers this work before planning 
 - **DSP/signal-processing skills** — one closer-in-spirit candidate, a GNU Radio / SDR skill, covers correlation-adjacent signal processing but is scoped to RF hardware (RTL-SDR, HackRF), not audio streams. Low confidence this would transfer usefully — noting as an unverified guess, not a recommendation.
 - **Conclusion**: no packaged skill — official or community — covers Android low-latency audio capture tuning combined with acoustic signal alignment. Both tests below are built directly against primary sources (Oboe/AAudio docs, Knapp & Carter 1976) rather than any third-party skill, since none exists that fits.
 
+## Quantitative thresholds — how these were derived (added 2026-07-05)
+
+Documentation review flagged that Test 1 and Test 2 had no numeric pass/fail bar, just qualitative
+descriptions ("confirm stable," "map out where it degrades") — which invites judging "pass" after
+seeing the data rather than before. Thresholds below are derived, not picked to fit expected
+results:
+
+1. **Top-level audible-drift ceiling: 15ms.** Psychoacoustic literature on onset-asynchrony
+   perception puts simultaneity judgments for percussive material in the ~10–30ms range; 15ms is a
+   conservative pick toward the tight end since this app's material (beatboxing, rap) is
+   rhythm-critical, not ambient. This is a generic-perception number, not validated for this app's
+   specific bleed/hardware conditions — see caveat at the end of this section.
+2. **The ceiling is a budget, split across stages**, so no single error source is allowed to
+   consume the whole allowance before other sources even contribute:
+
+   | Stage | Allowance | Rationale |
+   |---|---|---|
+   | Test 1 — buffer-stability variance | ±3ms | Foundational/systematic error that every downstream stage inherits; kept small since it should be near-zero if the continuous-stream assumption holds. |
+   | Test 1a — AAudio self-reported vs. ground-truth latency | ≤5ms discrepancy | Needs enough margin that trusting the platform number alone doesn't already consume a third of the budget. |
+   | Test 2 — correlation peak quality | PSR ≥ 6dB (minimum acceptable), ≥10dB (confident) | Borrowed from established TDOA/GCC-PHAT practice for "is this peak trustworthy," not invented from this dataset. |
+   | Test 3 — cumulative multi-hop drift | 95th-percentile cumulative offset ≤15ms at N=4 hops | Uses the same top-level ceiling as the final acceptance bar once independent per-hop errors compound. |
+
+3. **Caveat:** these numbers are literature-grounded and defensible as genuinely decided in
+   advance, but they weren't validated against phone-speaker-to-phone-mic bleed specifically. If
+   Test 2 step 1 (synthetic, no device involved) shows the algorithm structurally cannot reach the
+   PSR floor even at high SNR, that's an *achievability* finding, not grounds to quietly lower the
+   *acceptability* bar — it would mean reconsidering the design direction, per this doc's stated
+   purpose, not relaxing the threshold post-hoc.
+
 ## Test 1 — Latency harness (continuous-buffer stability)
 
 **Question:** Does a single continuous audio buffer (lead-in + overdub target) preserve a stable, correctly-measured round-trip offset, or does a scheduling seam introduce silent error?
@@ -44,6 +73,14 @@ Checked whether any existing Claude Code skill covers this work before planning 
 **Method:** Loopback test — physical clap or a known click track through a loopback cable — repeated ~20 times. Check `AAudioStream_getXRunCount()` for buffer underruns on each run. Confirm the measured offset is stable across repetitions and doesn't drift when the lead-in and target recording are scheduled as one continuous stream vs. (as a negative control) two sequentially-scheduled players.
 
 **What this answers:** Direct yes/no on whether the "no scheduling seam" assumption holds. Doesn't require musical content or a second device.
+
+**Pass/fail threshold:** Measured offset variance across the 20 reps must stay within **±3ms**
+(e.g. ~144 samples at 48kHz — actual sample count depends on the device's native rate) for the
+continuous-stream condition. **Any buffer underrun (`AAudioStream_getXRunCount()` > 0) is a hard
+fail** regardless of measured variance, since an underrun invalidates the continuous-stream
+assumption outright. The negative-control (two sequentially-scheduled players) is expected to fail
+this bar — if it doesn't, that's a signal the test rig isn't sensitive enough to detect a scheduling
+seam, not that seams are harmless.
 
 **Confidence:** High confidence this test design is correct — it mirrors Google's own recommended latency-measurement approach (OboeTester, per AOSP's audio latency documentation). Low confidence in what the result will be — the design doc already flags real A/V sync bugs (200–700ms) reported by Pixel 8/9 users as a different-but-adjacent failure mode, which is a signal, not a prediction.
 
@@ -72,6 +109,13 @@ mechanism (making Test 2's bleed correlation unnecessary for headphone sessions)
 a rough estimate needing bleed-based correction on top, or not viable at all (falling back to the
 forced-speaker calibration chirp or adaptive hybrid from design-summary.md's alternatives list).
 
+**Pass/fail threshold:** Discrepancy between AAudio's self-reported latency and the loopback
+ground truth must stay **≤5ms**, consistently across all ~20 reps and across every route tested
+(speaker, wired, Bluetooth if available). A route that exceeds 5ms falls back to bleed-correlation
+(Test 2) or the forced-chirp alternative for that route specifically — this doesn't need to be an
+all-routes-or-nothing decision; e.g. platform timestamps could pass for wired headsets but fail for
+Bluetooth, and the app could use different mechanisms per route.
+
 **Confidence:** Low confidence either way — the design doc's rejection of this approach rested on a
 single anecdotal report, not a systematic test, so this is a genuinely open question rather than one
 with a directional prior.
@@ -88,6 +132,20 @@ with a directional prior.
 2. **Real-bleed recording, one phone.** Record the clean beatbox track, then have the same phone play it back through its speaker while recording the overdub through its mic. Vary playback volume and phone orientation/distance from any obstruction to map where the correlation peak degrades. Run the validated GCC-PHAT implementation from step 1 against this real data.
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
+
+**Pass/fail threshold:**
+- **Step 1 (synthetic, implementation-correctness gate):** at high/clean SNR (e.g. ≥20dB), recovered
+  offset must match the injected delay within **±1 sample** and peak-to-sidelobe ratio (PSR) must be
+  **≥10dB** — this confirms the code is correct before using it to map anything. Sweep noise level
+  downward and record the SNR at which PSR crosses below **6dB** (the minimum-acceptable floor,
+  borrowed from standard TDOA/GCC-PHAT practice, not invented from this dataset) — that crossing
+  point is "the SNR floor," an output of this test, not a threshold to hit.
+- **Step 2 (real bleed):** counts as a usable lock in a given condition (volume/orientation/distance)
+  if **PSR ≥ 6dB and recovered offset is within ±2ms** of the ground truth already established by
+  Test 1's loopback measurement. **Overall Test 2 pass bar:** the baseline realistic condition
+  (comfortable conversational playback volume, phone within arm's reach, no obstruction) must clear
+  this bar. Edge conditions (quiet volume, phone in a pocket) failing is acceptable and becomes a
+  documented UX constraint (e.g., app enforces a minimum playback volume) rather than a test failure.
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 
@@ -112,6 +170,13 @@ chain of even small per-hop errors accumulates past an audible threshold (e.g. �
 realistic chain lengths — which would mean either a stricter per-hop accuracy requirement, or an
 explicit re-alignment step against the *original* reference at some point in the chain (rather than
 only against the immediately-prior track).
+
+**Pass/fail threshold:** Using the same 15ms top-level ceiling, the 95th-percentile cumulative
+worst-case offset across simulated chains must stay **≤15ms at N=4 hops** (treated as the realistic
+typical chain length) for the "always forward raw stems" mitigation to be declared sufficient on its
+own. N=6 is tracked as a stress case, not a hard gate. Exceeding 15ms at N=4 fails this test and
+means either a stricter per-hop accuracy requirement or an explicit mid-chain re-alignment step
+against the original reference is needed.
 
 **Confidence:** High confidence the simulation approach itself is sound — standard
 error-propagation/Monte Carlo exercise. Low confidence in the outcome — no data yet on the actual

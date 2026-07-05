@@ -134,6 +134,56 @@ low-cost mitigation. The remaining open question — whether independent per-hop
 compounds across a multi-hop chain — needs its own validation; see `prototype-plan.md`'s Test 3
 (proposed).
 
+## Concurrency and threading model (added 2026-07-05)
+
+**Problem:** raised in documentation review (`review-20260705-093038.md`) — neither doc said where
+GCC-PHAT alignment, echo cancellation, or file I/O for the shared recording would run, despite
+`CLAUDE.md`'s own main-thread-discipline rule (CPU-bound work off the main thread, I/O off the main
+thread).
+
+**Decision:**
+- GCC-PHAT alignment runs on `Dispatchers.Default` (CPU-bound, not trivially fast) — never inline
+  with the Oboe audio callback or the UI thread.
+- File I/O for the shared recording (write to disk, upload to cloud storage, read a downloaded
+  stem) runs on `Dispatchers.IO`.
+- Echo cancellation stays off-device/offline per the existing decision (see "Timing correction
+  strategy," point 6), so it isn't this app's dispatcher concern unless the on-device
+  `AcousticEchoCanceler` fallback is ever adopted — that runs real-time via the platform
+  `AudioEffect` framework, not app-owned coroutine work.
+- Alignment is exposed as a single `suspend fun align(...)` on a repository-shaped class (e.g.
+  `OverdubRepository`, consistent with the android-data-layer skill's repository-as-error-boundary
+  pattern), not a fire-and-forget callback. The caller (ViewModel) owns the scope
+  (`viewModelScope`), so backing out of the alignment screen cancels the parent job and
+  cancellation propagates automatically — no separate cancel-token plumbing. The correlation loop
+  should check for cancellation periodically (e.g. `ensureActive()` inside the FFT/correlation
+  loop) so a cancelled job actually stops promptly rather than running to completion silently.
+
+This matches the CPU-bound/I-O-bound split `CLAUDE.md` already establishes for the sibling audio
+app, and follows the coroutines skill's "suspend fun, caller owns the scope" guidance directly, so
+it doesn't need to be reverse-engineered later the way the noisedroid FFT-synthesis threading fix
+was.
+
+## Session state persistence (added 2026-07-05)
+
+**Problem:** raised in documentation review — the lead-in design has session state (key, meter,
+tempo, whether the reference chord is enabled) that should survive at least a configuration change,
+and arguably prefill on the next app launch, but neither doc named a persistence mechanism.
+
+**Decision:** Jetpack **Preferences DataStore**, not Room or Typed/Proto DataStore — the state is
+four scalar values with no relational structure, too small to justify a schema/serializer. Two
+distinct lifetimes:
+- **Active session state** (state of an in-progress recording) lives in memory in the recording
+  Service/ViewModel only, per `CLAUDE.md`'s existing "single source of truth" rule for playback
+  state — never read from or written to DataStore mid-session.
+- **Last-used defaults** (key/meter/tempo/chord-enabled) are written to Preferences DataStore only
+  when the user changes them on the setup screen, and read once to prefill that screen on next
+  launch — DataStore is a durable-defaults cache, not the source of truth for a running session.
+
+Per the datastore skill's two known traps: any `catch` around DataStore reads/writes must not
+swallow `CancellationException`, and a `corruptionHandler` should be installed (fall back to the
+default session config, not a crash) since Preferences DataStore can throw `CorruptionException` on
+a damaged file just as the typed variant can.
+
 ## Lead-in / count-in design (final proposal)
 1. First user sets key, meter, tempo.
 2. A lead-in plays: metronome count-in + optional reference chord (user-requested only — skippable for pure percussion tracks).
@@ -154,3 +204,8 @@ compounds across a multi-hop chain — needs its own validation; see `prototype-
 - Reliability of cross-correlation alignment under low bleed SNR (loud/close-mic vocal vs. quiet bleed) — unverified, flagged as an empirical question.
 - Reliability of `AcousticEchoCanceler` and onset detection specifically on noisy phone-recorded music content — unverified in both cases.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
+- **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a
+  performer watching their instrument/hands can't see a visual-only cue at the critical instant.
+  **Explicitly deferred to later in the prototyping phase**, not decided now — it's a UX-layer
+  decision independent of the load-bearing timing assumptions Test 1/1a/Test 2/Test 3 are gating,
+  so it doesn't block prototype validation. Revisit once those tests conclude.
