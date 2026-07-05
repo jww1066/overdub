@@ -32,6 +32,16 @@ Audio focus loss and `ACTION_AUDIO_BECOMING_NOISY` are private listeners trigger
 events — don't try to fake these in an automated test; it gives false confidence (see "Diagnose
 before re-implementing" below for a concrete case where this bit a prior project).
 
+**A hard-fail metric that depends on warmup state can pass by luck of test order.** A zero-XRun
+hard-fail assertion passed in the full instrumented suite only because it ran last (alphabetically),
+after seven prior captures had warmed the audio path — run cold in isolation it failed with input
+underruns every time. A green suite is not evidence the assertion is robust if the quantity it
+checks (XRun count, first-frame latency, cold-cache timing) is sensitive to how warm the device is.
+For anything warmup-sensitive, run the specific test *cold and in isolation* (single-method
+`-Pandroid.testInstrumentationRunnerArguments.class=Class#method`, repeated several times) before
+trusting the pass — don't let ordering hide a startup defect that a real cold-start run in the field
+will hit.
+
 ## Diagnose before re-implementing
 
 When an on-device test reports unexpected behavior, don't jump straight to a second implementation
@@ -41,6 +51,14 @@ default, then a manual synchronized attenuation) before it turned out the test m
 a ringtone/alarm from Android's Settings — doesn't request audio focus at all in most Android
 versions, so neither implementation was ever actually invoked. The real fix was retesting with a
 genuine notification/call. Ask what steps were used to reproduce before writing more code.
+
+A corollary for symptoms that could come from either side of a seam: **log each side separately
+before attributing the cause.** A full-duplex capture reported non-zero XRuns, and the instinct is
+to reach for the output stream (the usual underrun suspect). Logging the output and input XRun counts
+as two distinct numbers showed output was always 0 and the entire problem was on the input side —
+which pointed straight at the input warmup/startup ordering (see "Audio pipeline patterns") instead
+of at a wrong-but-plausible output-buffer fix. Cheap instrumentation that disambiguates *which*
+component failed beats guessing from a single aggregated number.
 
 ## Main-thread discipline
 
@@ -110,6 +128,21 @@ only a test whose `@Rule` launches the Activity does.
   -6dB sum to roughly the same RMS as one unattenuated channel. AudioFlinger's mixer applies no
   limiter of its own, so headroom must be conservative enough to absorb statistical peaks with
   several channels active at once.
+- **Full-duplex Oboe startup XRuns are an input-side warmup artifact, not steady-state.** When one
+  output data callback also drives capture (the recommended full-duplex pattern — the callback reads
+  the input stream synchronously each call), a cold start reliably overran the *input* stream on a
+  Pixel 10 while the output side stayed clean. Two independent causes, both at startup: (a) the input
+  stream was started *before* its only drainer — the output callback — was live, so it backed up and
+  overran in the gap; (b) the callback drained just one burst per call, never catching up on a
+  backlog. Fixes that made cold XRuns deterministically zero: **start the output stream first** (so
+  the drainer is running before input data arrives; gate the callback's input reads behind an atomic
+  "input started" flag so it never touches a not-yet-started stream), **drain *all* available input
+  each callback** (loop `read(..., timeout=0)` until it returns short, not a single burst-sized
+  read), and **enlarge the buffers** — AAudio `LowLatency` opens the buffer at a single burst (lowest
+  latency, most underrun-prone), so `setBufferSizeInFrames()` to several bursts on the output and max
+  out the input buffer when capture latency doesn't matter (GCC-PHAT recovers the offset by
+  correlation regardless of how deep the input is buffered). The looped drain and flag check stay
+  callback-safe: bounded by available data, allocation-free, no locking.
 - **Audio focus**: decide early whether focus loss (transient-duckable, transient, or permanent)
   should duck or pause. Ducking multiple simultaneous tracks via either the framework default or a
   manual synchronized attenuation can produce an audible "swirling"/artifact with several
@@ -138,6 +171,14 @@ only a test whose `@Rule` launches the Activity does.
 - Git Bash mangles absolute Unix-style paths in `adb shell` commands (e.g. `/sdcard/foo` gets
   rewritten to a Windows path). Prefix with `MSYS_NO_PATHCONV=1` when passing device-side paths to
   `adb shell`.
+- A double hyphen (`--`) is illegal *inside* an XML comment — an `AndroidManifest.xml` comment
+  written with a prose "em-dash" (`foo -- bar`) fails the manifest merger with an opaque
+  `ManifestMerger2$MergeFailureException: Error parsing AndroidManifest.xml`, not a message naming
+  the `--`. Use a single hyphen, "to", or reword. (Kotlin/C++/Markdown `--` is fine; this is XML-only.)
+- Instrumented tests need runtime-permission grants set up in the test, not just declared in the
+  manifest: `@get:Rule val p = GrantPermissionRule.grant(Manifest.permission.RECORD_AUDIO)` (from
+  `androidx.test:rules`) — a `<uses-permission>` for a dangerous permission (RECORD_AUDIO) is not
+  auto-granted to a headless instrumented run, and the capture silently returns silence/fails without it.
 - LF→CRLF warnings on `git add`/`git commit` on Windows are harmless noise from line-ending
   normalization, not an error.
 - Newer Android versions can break older Espresso versions: Android 16 (API 36) blocks the
