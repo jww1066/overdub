@@ -259,6 +259,70 @@ waits on Test 1's loopback number.
   plausibly per-capture playback/capture-start jitter (separate un-sample-synced recordings), but
   cannot be confirmed as such -- or ruled out as residual misalignment -- without that ground truth.
 
+### Edge-cell diagnosis, band trade-off, and the start-jitter decomposition path (2026-07-05, item 7c follow-up)
+
+Three linked findings from re-examining the one below-bar cell and the offset spread.
+
+**1. The single below-6 dB cell is a mechanical-rattle edge case, not an alignment failure.**
+`loud_far_facedown_none` (band-limited PSR 5.1 dB, the lone <6 dB cell) was diagnosed with
+`diagnose_gcc_phat.py --capture loud_far_facedown_none_1783296248876.wav`. Its failure mode is the
+*opposite* of the population failure:
+- Reference autocorrelation PSR 38-67 dB -> reference fine (cause (a) ruled out), as everywhere.
+- The spectral envelope shows an HF *excess*, not a rolloff: capture-minus-reference is **+13 dB at
+  2-4k, +17 dB at 4-8k, +27.5 dB at 8-16k**. In the loud+far+facedown condition the speaker is
+  driven hard *into the resting surface* while the acoustic bleed is weakest (far ~ near-anechoic),
+  so the mic hears mostly chassis/surface rattle -- broadband HF energy uncorrelated with the
+  reference -- layered over a faint real bleed. This is the inverse of the baseline cell's
+  speaker-bass-rolloff / HF-mic-noise problem.
+- Critically, the *offset* is band-robust: 500-4000, 300-4000, 250-4000, and 1000-4000 all recover
+  the identical **4181 samples (87.10 ms)**; only 500-8000 (which readmits the rattle band) flips to
+  a -96.73 ms alias. So the alignment for this cell is correct -- only the PSR margin in the default
+  band dips below 6 dB.
+
+**2. Narrowing the global band to 1000-4000 Hz is NOT a strict improvement -- rejected.**
+Because 1000-4000 recovered the rattle cell to 12.6 dB, we tested it across all 36
+(`run_bandlimited_gcc_phat_sweep.py --lo 1000 --hi 4000`, output
+`gcc_phat_1000_4000_results.csv`):
+
+| Band | confident (>=10) | minimum (6-10) | below (<6) | clears 6 dB |
+|---|---|---|---|---|
+| 500-4000 (current) | 33 | 2 | 1 | 35/36 |
+| 1000-4000 | 25 | 11 | 0 | 36/36 |
+
+It removes the one sub-6 dB cell but demotes 8 cells confident->minimum and -- decisively -- drops
+the **gate-critical baseline** cell `conversational_armslength_faceup_none` from 10.5 (confident) to
+9.0 (minimum). The demoted cells are the faceup/none ones whose real acoustic bleed carries
+correlated energy in 500-1000 Hz that 1000-4000 discards; no fixed band is optimal for both the
+acoustic-bleed regime and the rattle regime. **Decision: keep 500-4000.** The rattle cell failing
+the *confidence* margin (not the alignment) is exactly the kind of edge condition the plan documents
+as a UX constraint, not a test failure. Key by-product: the recovered-offset population stats are
+*identical* between the two bands (min 61.1 / max 151.2 / mean 97.2 / std 17.5 ms), so band choice
+relabels PSR verdicts without moving the alignment -- reinforcing that PSR is a fragile label and the
+offset is the robust quantity.
+
+**3. The 61-151 ms offset spread is a harness measurement artifact, decomposable now WITHOUT the
+loopback rig.** Mechanistically the spread is *not* GCC-PHAT error. Each of the 36 cells is an
+independent capture session with its own output+input stream start; the two streams are not
+sample-synchronized, so the recovered offset = (acoustic round-trip, ~constant on one device) +
+(per-session start misalignment between the two streams). That second term is jitter of the
+*measurement*, and the **product does not have it**: the app aligns within one continuous full-duplex
+session and self-measures that session's own offset once, so cross-session spread is irrelevant to
+alignment and only confounds *validation*.
+
+The principled decomposition uses the hardware timestamps both streams already expose
+(`AAudioStream_getTimestamp()` / Oboe `getTimestamp()`), a `(framePosition, nanoTime)` pair against a
+common monotonic clock. The output timestamp folds in DAC latency (when a frame is *heard*), the
+input timestamp folds in ADC latency (when a frame is *captured*), so subtracting the
+timestamp-derived stream offset from the GCC-PHAT offset should leave only the tiny near-constant
+acoustic flight time. This is decisive either way: residual collapses to a constant -> the spread was
+jitter (benign, now removable); residual stays wide -> it is real alignment error and the benign
+reading is dead. **This needs the device but NOT the loopback rig** -- the rig's separate role is to
+later confirm the device's reported timestamps aren't *lying* (the moto g(20) counter-example). It
+cannot be applied retroactively (the 36 WAVs logged no timestamps), so it needs a re-capture of a few
+cells with timestamp logging added -- which is also **Test 1a's mechanism pulled forward** (the
+design's device-agnostic alignment hedge, `prototype-plan.md`). See `test2-step2-plan.md` "Next
+steps."
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
@@ -268,6 +332,17 @@ waits on Test 1's loopback number.
 - ~~**Re-check the PSR sidelobe-exclusion vs the post-bandpass main-lobe width**~~ -- done (item 7b
   above): measured lobe is 1 sample (PHAT keeps the peak sharp); `psr_exclusion=2` was already
   adequate, the suspected miscalibration was not real, no change made.
+- ~~**Diagnose the lone below-6 dB cell**~~ -- done (see "Edge-cell diagnosis" above):
+  `loud_far_facedown_none` is HF-rattle-contaminated (loud+facedown into the resting surface), an
+  edge condition, not an alignment failure; its offset is band-robust at 87.10 ms.
+- ~~**Test whether a narrower band (1000-4000 Hz) is a strict improvement**~~ -- done, **rejected**
+  (see "band trade-off" above): it clears 36/36 but demotes the gate-critical baseline confident ->
+  minimum. Keep 500-4000. `gcc_phat_1000_4000_results.csv` retained for the record.
+- **Decompose the 61-151 ms offset spread with hardware timestamps (no loopback rig needed).** Add
+  `getTimestamp()` logging for both streams to the harness, re-capture a few cells, and subtract the
+  timestamp-derived stream offset from the GCC-PHAT offset to see whether the residual collapses to a
+  constant (jitter) or stays wide (real error). This doubles as building Test 1a. See
+  `test2-step2-plan.md` "Next steps."
 - **Establish Test 1's loopback ground-truth latency** so the ±2 ms half of the pass bar can be
   judged (blocked on the loopback rig; see `test2-step2-plan.md` "Sequencing dependencies"). Until
   then the 97 ms offset is internally consistent but unverified against truth.

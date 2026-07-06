@@ -451,13 +451,32 @@ In rough dependency order, picking up from "Implementation status" above:
      PHAT re-whitens the spectrum, so the peak stays impulse-sharp even after bandpassing. The fixed
      `psr_exclusion=2` was already adequate and PSR is insensitive to it (10.5 dB at exclusion 1/2/3).
      No change made -- a "measure before changing, the default was fine" outcome.
-   - **7c. Re-run and record the per-cell PSR + offset table** -- done for the current correlator
+   - ~~**7c. Re-run and record the per-cell PSR + offset table**~~ -- done for the current correlator
      (`gcc_phat_bandlimited_results.csv`; offsets 61-151 ms, mean 97.2, std 17.5). It is **not yet
      the Test 2 step 2 pass**: the ±2 ms-vs-ground-truth half of the bar still waits on Test 1's
      loopback number (see "Sequencing dependencies"), and the 61-151 ms spread can't be confirmed as
      benign per-capture start jitter (vs residual misalignment) without that ground truth.
+   - ~~**7d. Diagnose the lone below-6 dB cell and check whether a narrower band helps**~~ -- done
+     (see `test2-sweep-results.md` "Edge-cell diagnosis"): `loud_far_facedown_none` is an HF-rattle
+     edge case (loud+facedown into the resting surface), not an alignment failure -- its offset is
+     band-robust at 87.10 ms. Testing 1000-4000 Hz across all 36 (`gcc_phat_1000_4000_results.csv`)
+     was **rejected**: it clears 36/36 but demotes the gate-critical baseline cell confident ->
+     minimum. **Band decision: keep 500-4000.** Lesson: PSR is a fragile, band-sensitive *label*
+     while the recovered offset is band-robust -- don't re-tune the band to chase one cell's PSR.
    - Optional cleanup: fold the band-pass into `run_gcc_phat_sweep.py` as a `--band-pass` flag so
      there's one sweep script instead of two, once the correlator changes settle.
+10. **Log per-stream hardware timestamps and decompose the offset spread (Test 1a, pulled forward).**
+    The 61-151 ms spread is a *harness measurement artifact* -- each cell is an independently-started
+    output+input stream pair, so the offset carries a per-session start misalignment the product
+    (one continuous full-duplex session, self-measured) does not have. Add `getTimestamp()` reads for
+    both streams to `FullDuplexEngine` after they reach RUNNING, log the derived stream offset
+    (frames + ns) into a new `ConditionMetadata` field, re-capture a few cells, and offline subtract
+    it from the GCC-PHAT offset. Residual collapsing to a constant confirms jitter (benign,
+    removable); staying wide means real alignment error. **Needs the device but NOT the loopback rig**
+    (the rig later confirms the reported timestamps aren't lying -- the moto g(20) case). This is
+    exactly Test 1a's device-agnostic mechanism, so building it here also de-risks the design's
+    headphone-monitoring / cross-device hedge. Code + offline comparison script can be written and
+    unit-tested now; on-device verification is device-gated.
 8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the
    gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
    gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md

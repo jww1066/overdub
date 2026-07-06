@@ -60,6 +60,22 @@ scheduling detail. Read it when building or debugging the capture/playback engin
   out the input buffer when capture latency doesn't matter (GCC-PHAT recovers the offset by
   correlation regardless of how deep the input is buffered). The looped drain and flag check stay
   callback-safe: bounded by available data, allocation-free, no locking.
+- **Measure the true alignment between the two full-duplex streams with `getTimestamp()`, don't infer
+  it only from signal correlation.** A full-duplex engine runs *two* hardware streams (output + input)
+  that start independently and are not sample-synchronized, so any offset recovered purely by
+  correlating the played reference against the captured mic carries a per-session start misalignment
+  on top of the real acoustic round-trip. Both streams expose `AAudioStream_getTimestamp()` (Oboe:
+  `getTimestamp()`) — a `(framePosition, nanoTime)` pair against a common monotonic clock, with output
+  DAC latency and input ADC latency already folded in (it reports when a frame is actually
+  *heard* / actually *captured*, not when you enqueued it). Reading both after the streams reach
+  RUNNING gives the exact frame relationship between them, so you can subtract the harness's own
+  start-offset and recover the pure round-trip — or use the timestamps directly as the alignment,
+  independent of any acoustic bleed (this is the "trust the platform latency" path, `Test 1a`). Log
+  the pair into capture metadata. Caveat: `getTimestamp()` accuracy is itself device-dependent (the
+  moto g(20) reported a wrong number), so a physical loopback stays the independent check that the
+  timestamps aren't lying — timestamps remove the *measurement* jitter, the loopback confirms the
+  *platform* is honest. Ties to `doc/guides/offline-dsp.md`'s "run-to-run spread can be a measurement
+  artifact" lesson.
 - **Audio focus (implementation detail; the duck-vs-pause *decision* is in `CLAUDE.md`)**: ducking
   multiple simultaneous tracks via either the framework default or a manual synchronized attenuation
   can produce an audible "swirling"/artifact with several concurrent, decorrelated tracks — if that

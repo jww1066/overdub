@@ -82,3 +82,37 @@ Python) so dependency versions stay pinned.
   ratio, not an exclusion artifact, and the 2-sample default was already fine. A textbook case of
   the "validate empirically before changing" rule above: the measurement showed the
   suspected-miscalibrated default was correct.
+- **PSR is a fragile, band-sensitive *label*; the recovered offset is the robust quantity -- don't
+  re-tune the band to chase one cell's PSR.** After the 500-4000 Hz sweep left one cell below the
+  6 dB bar (`loud_far_facedown_none`, PSR 5.1 dB), narrowing to 1000-4000 Hz rescued it (12.6 dB)
+  but was *not* a strict win across the matrix: it cleared 36/36 yet demoted 8 cells and, decisively,
+  dropped the gate-critical baseline cell from confident (10.5) to minimum (9.0). Meanwhile the
+  recovered-offset population stats were *identical* between the two bands (mean 97.2, std 17.5 ms) --
+  band choice relabels which cells read "confident" without moving the alignment at all. So gate the
+  *decision* on the offset (and the gate-critical baseline cell), not on maximizing a headline
+  confident-count; a single edge cell below the PSR floor with a *band-robust* offset is a documented
+  UX-constraint condition, not an alignment failure. (Diagnose the cell first --
+  `diagnose_gcc_phat.py --capture <that_cell>.wav` -- before touching the global band.)
+- **A full-band GCC-PHAT failure has two opposite spectral causes; the diagnostic tells them apart.**
+  The population failure was HF *rolloff* (speaker rolls off signal, HF is mic-noise). But the lone
+  loud+facedown edge cell was the inverse -- HF *excess*: driven hard into the resting surface with
+  the acoustic bleed weakest (far), the mic heard broadband chassis/surface **rattle** (capture minus
+  reference +27.5 dB at 8-16k) uncorrelated with the reference. Same symptom (low PSR), opposite fix
+  direction (exclude the *low* band vs the *high*). The capture-vs-reference magnitude-spectrum
+  section of `diagnose_gcc_phat.py` distinguishes them; don't assume every real-bleed PSR miss is the
+  same band-limit problem.
+- **A run-to-run spread in a correlation-measured offset can be a *measurement artifact*, not
+  algorithm error -- decompose it with hardware timestamps before blaming the algorithm.** The
+  61-151 ms cross-cell offset spread (std 17.5 ms, > the whole 15 ms drift budget) looked alarming,
+  but each cell is an *independently-started* output+input stream pair: offset = (acoustic round-trip,
+  ~constant on one device) + (per-session start misalignment between the two streams). That second
+  term is jitter of the *harness*, and the product (one continuous full-duplex session, self-measured
+  once) does not have it -- so the spread confounds *validation*, not the alignment mechanism. The
+  clean decomposition needs no loopback rig: both streams expose `getTimestamp()` (a
+  `(framePosition, nanoTime)` pair on a common clock, with DAC/ADC latency folded in), so subtracting
+  the timestamp-derived stream offset from the GCC-PHAT offset should leave only the tiny constant
+  acoustic-flight term -- residual collapsing confirms jitter, staying wide confirms real error.
+  General lesson: when a measured offset comes from correlating two independently-scheduled streams,
+  attribute the run-to-run spread to the measurement rig (and measure it with the platform's own
+  clock) before attributing it to the estimator. See `doc/guides/on-device-audio.md` for the
+  full-duplex timestamp mechanism.

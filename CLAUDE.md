@@ -119,11 +119,15 @@ loudness/headroom, the full-duplex startup-XRun fix, focus-ducking artifacts) ar
   isolation for persisted storage.
 - **`doc/guides/on-device-audio.md`** — when building/debugging the capture or playback engine:
   main-thread contention-vs-sequencing detail, and the audio pipeline implementation patterns
-  (native rate, `AudioTrack` modes, `VolumeShaper` ramps, loudness/headroom, full-duplex XRun fix).
+  (native rate, `AudioTrack` modes, `VolumeShaper` ramps, loudness/headroom, full-duplex XRun fix,
+  and measuring true two-stream alignment with `getTimestamp()`).
 - **`doc/guides/offline-dsp.md`** — when working in `analysis/`: the venv, ASCII-only output,
   reusable-scripts (no `python -c` / scratchpad temp files), validate-DSP-params-empirically, the
-  negative-slice gotcha, and the GCC-PHAT band-limit / lag-window / PSR-doesn't-validate-offset
-  lessons.
+  negative-slice gotcha, and the GCC-PHAT lessons — band-limit / lag-window / PSR-doesn't-validate-
+  offset, PSR-is-a-fragile-band-sensitive-label-while-offset-is-band-robust (don't re-tune the band
+  to chase one cell), the two-opposite-spectral-causes (HF rolloff vs HF rattle), and
+  offset-spread-can-be-a-measurement-artifact (decompose with timestamps before blaming the
+  estimator).
 - **`doc/guides/tooling-and-hygiene.md`** — when a Gradle/adb/git/instrumented-test command fails
   with a message that doesn't name the real cause (`--tests`, `MSYS_NO_PATHCONV`, XML-comment `--`,
   `RECORD_AUDIO` grant rule, Espresso vs API 36).
