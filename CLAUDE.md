@@ -285,13 +285,20 @@ Python) so dependency versions stay pinned.
   correlation; a sharp *alias* still scores high. Two corollaries. (1) The recovered offsets were
   NOT a "consistent ~97 ms" as a single-cell spot-check had suggested — across the matrix they
   spanned +61 to +151 ms plus the -15 s outlier, too wide for a fixed round-trip, so the
-  single-cell "+97 ms" was over-generalized. (2) After bandpassing to a narrow band the
-  correlation main lobe *widens* (main-lobe half-width ~ 1/(2*bandwidth)), so a PSR whose
-  sidelobe-exclusion window was tuned for a full-band click train can go nearly constant (~11 dB
-  here regardless of an 8x bleed range) because it's measuring the *filter's* autocorrelation
-  shape, not the true peak's sharpness — re-check the exclusion-window-vs-main-lobe-width
-  calibration (measure_main_lobe_width.py) whenever you change the band. Gate alignment on PSR
-  *and* a plausible-lag constraint (restrict argmax to e.g. 0-300 ms), never PSR alone.
+  single-cell "+97 ms" was over-generalized (the +61-151 ms spread is plausibly per-capture
+  playback/capture-start jitter, but can't be confirmed benign without a loopback ground truth).
+  Gate alignment on PSR *and* a plausible-lag constraint (restrict argmax — and the sidelobe
+  search — to e.g. 0-300 ms), never PSR alone; constraining it turned the -15 s alias into a
+  +65 ms recovery and left offsets at 97.2 +/- 17.5 ms.
+- **Corollary — and a "measure, don't assume" catch:** the intuition that bandpassing *widens* the
+  correlation main lobe (half-width ~ 1/(2*bandwidth) ≈ 7 samples at 500-4000 Hz / 48 kHz), so a
+  2-sample `psr_exclusion` would start measuring the filter's lobe shape instead of the true peak,
+  is *wrong for PHAT*. PHAT divides out the magnitude spectrum, re-whitening it, so the peak stays
+  impulse-sharp regardless of the band — `measure_main_lobe_width.py`'s band-limited mode measured
+  a first-null half-width of **1 sample**, and PSR is insensitive to the exclusion (10.5 dB at
+  exclusion 1/2/3). So the flat ~11 dB PSR across an 8x bleed range is a *genuine* peak-to-sidelobe
+  ratio, not an exclusion artifact, and the 2-sample default was already fine. A textbook case of
+  the rule two bullets up: the measurement showed the suspected-miscalibrated default was correct.
 
 ## Workflow for staged/incremental work
 
