@@ -273,9 +273,25 @@ Python) so dependency versions stay pinned.
   clean (reference-vs-delayed-reference autocorrelation PSR 38-67 dB). Diagnose before fixing: a
   reference autocorrelation PSR test rules out "the reference is too periodic," and a
   capture-vs-reference magnitude-spectrum comparison shows the usable-SNR band (here ~500-4000
-  Hz). The fix is to bandpass both signals to that band before GCC-PHAT — recovered PSR ~10 dB
-  and a consistent +97 ms offset. A full-band PHAT failure on a real signal is usually a
-  band-selection problem, not an overall-SNR verdict.
+  Hz). The fix is to bandpass both signals to that band before GCC-PHAT. Bandpassing recovers the
+  peak *broadly* — a 36-cell real-bleed re-run went from 0/36 to 35/36 clearing the 6 dB bar (29
+  at >=10 dB). A full-band PHAT failure on a real signal is usually a band-selection problem, not
+  an overall-SNR verdict.
+- **But a recovered PSR does NOT by itself validate the recovered offset — check the offset for
+  physical plausibility separately, and constrain the lag search.** The same band-limited 36-cell
+  re-run exposed the trap: one cell scored PSR 11.6 dB ("confident") on an offset of *-15.25 s* —
+  a full-clip circular-correlation wraparound alias, physically impossible for a speaker->mic
+  round-trip. PSR only measures how sharp the winning peak is relative to the rest of the
+  correlation; a sharp *alias* still scores high. Two corollaries. (1) The recovered offsets were
+  NOT a "consistent ~97 ms" as a single-cell spot-check had suggested — across the matrix they
+  spanned +61 to +151 ms plus the -15 s outlier, too wide for a fixed round-trip, so the
+  single-cell "+97 ms" was over-generalized. (2) After bandpassing to a narrow band the
+  correlation main lobe *widens* (main-lobe half-width ~ 1/(2*bandwidth)), so a PSR whose
+  sidelobe-exclusion window was tuned for a full-band click train can go nearly constant (~11 dB
+  here regardless of an 8x bleed range) because it's measuring the *filter's* autocorrelation
+  shape, not the true peak's sharpness — re-check the exclusion-window-vs-main-lobe-width
+  calibration (measure_main_lobe_width.py) whenever you change the band. Gate alignment on PSR
+  *and* a plausible-lag constraint (restrict argmax to e.g. 0-300 ms), never PSR alone.
 
 ## Workflow for staged/incremental work
 

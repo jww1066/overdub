@@ -192,11 +192,62 @@ capture vs the reference) will determine which dominates before choosing a fix -
 reference, onset/transient-only correlation, or band-limited PHAT weighting. The per-cell CSV is
 at `analysis/sweep_data/gcc_phat_results.csv` (gitignored; regeneratable via the script).
 
+### Band-limited PHAT diagnosis + population re-run (2026-07-05, revised)
+
+`analysis/scripts/diagnose_gcc_phat.py` split the two candidate causes on the **baseline cell only**:
+
+- **Cause (a) ruled out.** Reference-vs-delayed-reference autocorrelation PSR was 38-67 dB at
+  5-120 ms synthetic delays, offset recovered exactly. (Caveat: this correlates the reference
+  against a zero-padded *identical* copy of itself, so a sharp peak is nearly guaranteed -- it
+  rules out "literally periodic," which is weaker evidence than the crisp dB range reads.)
+- **Cause (b) confirmed.** The capture-vs-reference spectral envelope shows the speaker rolls off
+  the bass (-17 to -19 dB below 500 Hz) and the 4-16 kHz bands are mic-noise-dominated (capture
+  +12 to +18 dB above the weak reference). Usable-SNR band ~500-4000 Hz.
+- On that one cell, bandpassing both signals to 500-4000 Hz recovered PSR 10.5 dB with +97 ms.
+
+**The single-cell result was over-read as "fix validated." The population re-run tells a more
+nuanced story.** `analysis/scripts/run_bandlimited_gcc_phat_sweep.py` applies the same
+bandpass+GCC-PHAT to all 36 cells:
+
+- **Recovery is real and broad:** 29/36 confident (>= 10 dB), 6/36 minimum (>= 6 dB), **1/36
+  below** -- i.e. 35/36 clear the 6 dB bar, up from 0/36 full-band. The band-limiting insight holds
+  across the matrix, not just the baseline cell.
+- **But the offsets are NOT a consistent +97 ms round-trip.** Across cells they span **+61 to
+  +151 ms** -- a ~90 ms (2.5x) spread, too wide for a fixed speaker->mic latency on one device.
+  The "consistent +97 ms" claim was consistency across *bandpass choices on one cell*,
+  mis-generalized to imply cross-cell consistency.
+- **A "confident" PSR does not imply a correct offset.** `conversational_far_faceup_pocketed`
+  scored **PSR 11.6 dB (confident)** with an offset of **-15,253 ms** -- essentially the full
+  reference length: a circular-correlation wraparound alias, physically impossible. High PSR only
+  means the winning peak is sharp; it can be a sharp *alias*. So PSR alone is not a trustworthy
+  alignment gate as currently used.
+- PSR is also suspiciously flat (~9.6-12.5 dB) across the full 8x bleed dynamic range -- the
+  quietest cell scores like the loudest -- consistent with the post-bandpass PSR largely
+  reflecting the filter's own autocorrelation main-lobe shape against the fixed 2-sample
+  `psr_exclusion`, rather than the true peak's sharpness. See "Next steps" for the exclusion-window
+  re-check.
+
+**Honest status: band-limiting rescues the correlation peak broadly, but the recovered offset is
+not yet trustworthy** (unconstrained argmax lands on wraparound/noise aliases that PSR still
+blesses). Per-cell CSV: `analysis/sweep_data/gcc_phat_bandlimited_results.csv` (gitignored;
+regeneratable). This is *not* the Test 2 step 2 pass -- the ±2 ms-vs-ground-truth bar also still
+waits on Test 1's loopback number.
+
 ## Next steps (post-sweep)
 
-- **Diagnose the GCC-PHAT failure** (see "GCC-PHAT offline pass" above) before changing the
-  reference or the correlator -- measure the reference's autocorrelation PSR and the capture's
-  spectrum vs the reference to split cause (a) from cause (b).
+- ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
+  re-run" above): cause (b), band-limited bleed, confirmed; band-limiting recovers 35/36.
+- **Constrain the GCC-PHAT lag search to a physically plausible window (e.g. 0-300 ms) before
+  trusting any offset or PSR.** This is the fix for the -15.25 s wraparound that scored "confident"
+  -- restricting argmax to positive, sub-300 ms lags removes the circular-correlation aliases that
+  the current full-vector argmax can win. Do this before re-reporting the per-cell offset table as
+  a result; the current 35/36 "pass" is a PSR-only count and is not yet a trustworthy alignment.
+- **Re-check the PSR sidelobe-exclusion window against the post-bandpass main-lobe width**
+  (`measure_main_lobe_width.py`). Bandpassing to 500-4000 Hz widens the correlation main lobe, and
+  the fixed 2-sample `psr_exclusion` was tuned for a full-band click train -- the flat ~11 dB PSR
+  across an 8x bleed range suggests the metric is measuring the filter's autocorrelation shape, not
+  the true peak. Recalibrate the exclusion (or switch to a main-lobe-relative PSR) so the dB number
+  means "trustworthy alignment" again.
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).

@@ -117,10 +117,15 @@ distance (not monotonic) because the 2 m room position has different multi-surfa
   (PSR 0.6-5.8 dB, unphysical negative offsets). Diagnosed with
   `analysis/scripts/diagnose_gcc_phat.py`: the reference is fine (autocorrelation PSR 38-67 dB
   -- cause (a), reference periodicity, ruled out); the failure is PHAT over-weighting
-  noise-dominated HF and bass-rolled-off LF bands (cause (b)). **Fix validated**: band-limiting
-  to 500-4000 Hz recovers PSR ~10 dB and a consistent +97 ms speaker->mic round-trip offset.
-  Applying the band-limited fix across the full sweep and recording the per-cell PSR/offset
-  table is the remaining item -- see "Next steps" item 7.
+  noise-dominated HF and bass-rolled-off LF bands (cause (b)). Band-limiting to 500-4000 Hz on the
+  baseline cell recovered PSR 10.5 dB / +97 ms -- but that was **one cell, over-read as "validated."**
+  The population re-run (`analysis/scripts/run_bandlimited_gcc_phat_sweep.py`, all 36) is more
+  nuanced: **recovery is broad (35/36 clear 6 dB, 29 at >=10 dB, up from 0/36), but the offset is
+  not trustworthy** -- offsets span +61 to +151 ms (not a consistent +97 ms), and one cell scored
+  PSR 11.6 dB "confident" on a -15.25 s wraparound alias, proving PSR alone does not validate the
+  offset. Remaining work: constrain the lag search to a plausible window and re-check the PSR
+  exclusion vs the widened post-bandpass main lobe before this is a real pass -- see
+  `test2-sweep-results.md` and "Next steps" items 7a-7c.
 - Tier 2 (instrumented) — done and green on the Pixel 10 (see "Implementation status" above).
 - Tier 3 (manual 36-cell sweep) — done, 36/36 clean (see above / `test2-sweep-results.md`).
 
@@ -431,12 +436,24 @@ In rough dependency order, picking up from "Implementation status" above:
    (2026-07-05).** The 36-cell manual sweep ran (36/36 clean) and the pairs are pulled and fed
    through the Python GCC-PHAT. The full-band pass failed (0/36); see `test2-sweep-results.md`'s
    "GCC-PHAT offline pass" and the diagnosis in `analysis/scripts/diagnose_gcc_phat.py`.
-7. **Apply the band-limited PHAT fix and re-run the sweep pass** — add a `--band-pass` option to
-   `run_gcc_phat_sweep.py` (default off, so full-band remains available for diagnosis), re-run on
-   the 36 captures with `--band-pass 500,4000`, and record the per-cell PSR + recovered-offset
-   table. Expected: most cells recover to ~9-10 dB PSR at ~97 ms; the quiet/far/pocketed edge
-   cells may stay below 6 dB -- which is the finding the sweep exists to surface (where does
-   alignment stop being trustworthy). This is the actual Test 2 step 2 deliverable.
+7. **Make the band-limited pass a *trustworthy* alignment, then record the per-cell table.** The
+   band-limited population re-run exists (`run_bandlimited_gcc_phat_sweep.py`, all 36) and shows
+   PSR recovers broadly (35/36 >= 6 dB), but the recovered *offset* is not yet trustworthy. Three
+   sub-items, in order:
+   - **7a. Constrain the lag search to a physically plausible window** (e.g. 0-300 ms) in
+     `gcc_phat` (an optional `max_lag`/`lag_window` arg). This removes the circular-correlation
+     wraparound aliases -- e.g. the -15.25 s "confident" cell -- that the current full-vector
+     argmax can win. Do this first; the per-cell offsets aren't meaningful until it's in.
+   - **7b. Re-check the PSR sidelobe-exclusion window vs the post-bandpass main-lobe width**
+     (`measure_main_lobe_width.py`). Bandpassing widens the main lobe; the fixed 2-sample
+     `psr_exclusion` (tuned for a full-band click train) makes PSR go nearly flat (~11 dB across an
+     8x bleed range), i.e. it's measuring the filter's autocorrelation shape, not peak sharpness.
+     Recalibrate so the dB number means "trustworthy alignment" again.
+   - **7c. Re-run and record the per-cell PSR + offset table** with 7a/7b in place. Only then is
+     this the Test 2 step 2 deliverable -- and the ±2 ms-vs-ground-truth half of the bar still
+     waits on Test 1's loopback number (see "Sequencing dependencies").
+   - Optional cleanup: fold the band-pass into `run_gcc_phat_sweep.py` as a `--band-pass` flag so
+     there's one sweep script instead of two, once the correlator changes settle.
 8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the
    gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
    gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md

@@ -158,10 +158,15 @@ unphysical negative offsets). Diagnosed empirically (`analysis/scripts/diagnose_
 the reference is fine (autocorrelation PSR 38-67 dB — cause (a), reference periodicity, ruled
 out); the failure is PHAT over-weighting noise-dominated HF and bass-rolled-off LF bands (the
 phone speaker rolls off the bass; HF bands are mic-noise, not signal). **A band-limited PHAT
-(500-4000 Hz) recovers a clean peak**: PSR ~10 dB and a consistent +97 ms speaker->mic
-round-trip offset on the baseline cell. Applying that fix across the full matrix and recording
-the per-cell PSR/offset table is the remaining step (see `test2-step2-plan.md`'s "Next steps"
-item 7). Results remain Pixel-10-specific (see "Cross-device generalization" below).
+(500-4000 Hz) recovers the correlation peak broadly** — a full-matrix re-run
+(`run_bandlimited_gcc_phat_sweep.py`) went from 0/36 to 35/36 clearing the 6 dB bar (29 at
+>=10 dB). **But the recovered offset is not yet trustworthy**: offsets span +61 to +151 ms (not
+the "consistent +97 ms" the single baseline cell suggested), and one cell scored PSR 11.6 dB
+"confident" on a physically impossible -15.25 s wraparound alias — so PSR alone does not validate
+alignment. Constraining the lag search to a plausible window and recalibrating the PSR
+exclusion-window are the remaining steps before this is a real pass (see `test2-step2-plan.md`
+"Next steps" items 7a-7c); the ±2 ms-vs-ground-truth half of the bar also still waits on Test 1's
+loopback number. Results remain Pixel-10-specific (see "Cross-device generalization" below).
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
