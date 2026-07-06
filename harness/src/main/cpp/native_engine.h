@@ -83,8 +83,9 @@ public:
     // common CLOCK_MONOTONIC with DAC/ADC latency folded in, so the output/input frame relationship
     // recovers the per-session start misalignment the two independently-started streams add on top of
     // the acoustic round-trip. hasStreamTimestamps() is false if getTimestamp() failed/was
-    // unsupported (device-dependent -- the moto g(20) reported a wrong number, so a loopback stays
-    // the independent honesty check); the derived-offset arithmetic lives Kotlin-side so it is
+    // unsupported; even when it succeeds, platform-reported latency has anecdotal device-specific
+    // inaccuracy (a single ~100 ms discrepancy reported on a moto g(20)), so a loopback stays the
+    // independent honesty check. The derived-offset arithmetic lives Kotlin-side so it is
     // JVM-unit-testable.
     bool hasStreamTimestamps() const { return mHasTimestamps.load(std::memory_order_relaxed); }
     int64_t outputTimestampFrames() const { return mOutputTsFrames; }

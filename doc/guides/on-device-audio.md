@@ -71,10 +71,11 @@ scheduling detail. Read it when building or debugging the capture/playback engin
   RUNNING gives the exact frame relationship between them, so you can subtract the harness's own
   start-offset and recover the pure round-trip — or use the timestamps directly as the alignment,
   independent of any acoustic bleed (this is the "trust the platform latency" path, `Test 1a`). Log
-  the pair into capture metadata. Caveat: `getTimestamp()` accuracy is itself device-dependent (the
-  moto g(20) reported a wrong number), so a physical loopback stays the independent check that the
-  timestamps aren't lying — timestamps remove the *measurement* jitter, the loopback confirms the
-  *platform* is honest. Ties to `doc/guides/offline-dsp.md`'s "run-to-run spread can be a measurement
+  the pair into capture metadata. Caveat: platform-reported latency can be device-dependent -- there's
+  an anecdotal ~100 ms discrepancy reported on a moto g(20) (a single report `design-summary.md` flags
+  as thin evidence, and about self-reported latency generally, not `getTimestamp()` specifically), so a
+  physical loopback stays the independent check that the timestamps aren't lying — timestamps remove
+  the *measurement* jitter, the loopback confirms the *platform* is honest. Ties to `doc/guides/offline-dsp.md`'s "run-to-run spread can be a measurement
   artifact" lesson.
 - **Audio focus (implementation detail; the duck-vs-pause *decision* is in `CLAUDE.md`)**: ducking
   multiple simultaneous tracks via either the framework default or a manual synchronized attenuation

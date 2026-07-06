@@ -123,7 +123,10 @@ Python) so dependency versions stay pinned.
   and irrelevant to the benign-vs-real verdict (that turns on the *std* collapse). (2) The collapse is
   partial, not total (5.5 ms residual std remains from getTimestamp granularity + correlation
   quantization) -- report it as "most of the spread," not "fully explained." Confirming the fixed
-  constant is *honest* is the loopback rig's separate job (the moto g(20) reported a wrong number).
+  constant is *honest* is the loopback rig's separate job -- platform-reported latency has anecdotal
+  device-specific inaccuracy (a single ~100 ms discrepancy reported on a moto g(20); `design-summary.md`
+  flags it as thin evidence), so the reported timestamps can't be assumed honest without an
+  independent acoustic check.
   General lesson: when a measured offset comes from correlating two independently-scheduled streams,
   attribute the run-to-run spread to the measurement rig (and measure it with the platform's own
   clock) before attributing it to the estimator. See `doc/guides/on-device-audio.md` for the
