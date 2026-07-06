@@ -57,6 +57,22 @@ worth probing before trusting a sweep on a new device. Log `device_model`/`sampl
 `xrun` into each capture's metadata so re-measuring on another device is "run it again, compare
 tables," not a rewrite.
 
+**When a sweep axis is defined relative to a physical referent, pin AND record the referent in
+metadata — not just the axis values.** A condition matrix varied `distance_cm` (15/50/200 cm)
+defined as "distance to the nearest large reflecting surface," but the first six cells were
+captured with a desk-below-as-reflector geometry that collapses the distance and orientation
+axes (the desk is both the distance referent *and* the face-down resting surface) and can't
+extend to `far` (2 m above a desk isn't feasible indoors). The metadata recorded `distance_cm=15`
+faithfully but not *which surface* the 15 cm was measured to, so the bad geometry was
+indistinguishable from a valid cell and would have silently contaminated the dataset — caught
+only because the operator asked a clarifying question, not because the data was self-flagging.
+The redo used a wall as the reflector with a separate small pad as the face-down coupler (two
+distinct objects, keeping the axes independent). Record the physical-setup referent/geometry
+into metadata (a `reflector_geometry`/`setup_notes` field), same rigor as
+`device_model`/`input_preset` — the axis values alone are ambiguous without it, and "the
+nearest large reflecting surface" is a phrase that needs a name attached before it means
+something reproducible.
+
 ## Diagnose before re-implementing
 
 When an on-device test reports unexpected behavior, don't jump straight to a second implementation
@@ -247,6 +263,19 @@ Python) so dependency versions stay pinned.
   `numpy` broadcast-shape `ValueError` rather than a clear error or correct result. When a slice
   bound is arithmetic (not a literal), explicitly guard the case where it could go negative rather
   than trusting Python's negative-index reinterpretation to do the right thing.
+- **GCC-PHAT's PHAT weighting over-weights noise bands on real band-limited signals; band-limit
+  to the usable-SNR band before concluding "not enough SNR."** PHAT divides the cross-spectrum by
+  its own magnitude, weighting every frequency band equally — fine for a clean synthetic signal,
+  but on real phone-speaker-to-mic bleed the speaker rolls off the bass and the HF bands are
+  mic-noise-dominated (signal weak, noise floor wins). Equal weighting then amplifies the
+  low-SNR bands and the correlation peak collapses (a 36-cell real-bleed sweep gave PSR 0.6-5.8
+  dB with unphysical negative offsets, full-band), even though the reference itself is perfectly
+  clean (reference-vs-delayed-reference autocorrelation PSR 38-67 dB). Diagnose before fixing: a
+  reference autocorrelation PSR test rules out "the reference is too periodic," and a
+  capture-vs-reference magnitude-spectrum comparison shows the usable-SNR band (here ~500-4000
+  Hz). The fix is to bandpass both signals to that band before GCC-PHAT — recovered PSR ~10 dB
+  and a consistent +97 ms offset. A full-band PHAT failure on a real signal is usually a
+  band-selection problem, not an overall-SNR verdict.
 
 ## Workflow for staged/incremental work
 

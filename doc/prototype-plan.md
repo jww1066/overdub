@@ -149,11 +149,19 @@ port-correctness regression tests the 093038 review asked for when the algorithm
 ported to Kotlin/C++. Step 2's Android capture harness now has its Gradle scaffold, pure-Kotlin
 pieces, the Oboe full-duplex native capture engine (Tier-2 green on a real Pixel 10 as of
 2026-07-05 — zero XRuns after an input-warmup fix), and the condition-sweep driver all built
-(Stages 1–2 of `test2-step2-plan.md`). What remains: the *manual* 36-cell on-device sweep, swapping
-the synthetic placeholder reference for a real beatbox recording, and Components §4's data-pull into
-the (already-gated) Python GCC-PHAT — see [`test2-step2-plan.md`](test2-step2-plan.md)'s
-"Implementation status" and "Next steps" sections for full detail. Step 2 has not run against real
-bleed data yet, and its results are Pixel-10-specific (see "Cross-device generalization" below).
+(Stages 1–2 of `test2-step2-plan.md`). **Update — step 2 has now run against real bleed
+(2026-07-05):** the manual 36-cell on-device sweep is complete (36/36 clean on the Pixel 10; see
+`doc/test2-sweep-results.md` for the full matrix and findings), the real `boots.wav` reference
+(48kHz/15.25s) is bundled, and the captures are pulled and fed through the Python GCC-PHAT.
+**Full-band GCC-PHAT fails on the real bleed: 0/36 clear the >=6 dB PSR bar** (PSR 0.6-5.8 dB,
+unphysical negative offsets). Diagnosed empirically (`analysis/scripts/diagnose_gcc_phat.py`):
+the reference is fine (autocorrelation PSR 38-67 dB — cause (a), reference periodicity, ruled
+out); the failure is PHAT over-weighting noise-dominated HF and bass-rolled-off LF bands (the
+phone speaker rolls off the bass; HF bands are mic-noise, not signal). **A band-limited PHAT
+(500-4000 Hz) recovers a clean peak**: PSR ~10 dB and a consistent +97 ms speaker->mic
+round-trip offset on the baseline cell. Applying that fix across the full matrix and recording
+the per-cell PSR/offset table is the remaining step (see `test2-step2-plan.md`'s "Next steps"
+item 7). Results remain Pixel-10-specific (see "Cross-device generalization" below).
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 

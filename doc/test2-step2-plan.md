@@ -110,12 +110,19 @@ volume compresses sub-linearly (device-level AGC/amp + coupling-path), distance-
 weak lever end-to-end (far is not lower than armslength), and fabric attenuation is U-shaped in
 distance (not monotonic) because the 2 m room position has different multi-surface geometry.
 
-**Not started — Stage 2 steps 4+ (needs a physical device):**
-- Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
-  implemented and gated (see "Sequencing dependencies" above), so this is no longer blocked on
-  it; it's blocked on having real captures to feed through the validated implementation.
-- All Tier 2 (instrumented) and Tier 3 (manual on-device) tests below — none of these have run
-  since no native capture code exists yet and no physical device has been used against this repo.
+**Stage 2 steps 4+ status (2026-07-05):**
+- Data pull + analysis integration (Components §4) — **done**: the 36 WAV+JSON pairs are pulled
+  to `analysis/sweep_data/` and fed through the validated Python GCC-PHAT via
+  `analysis/scripts/run_gcc_phat_sweep.py`. **Result: 0/36 pass** the full-band >=6 dB PSR bar
+  (PSR 0.6-5.8 dB, unphysical negative offsets). Diagnosed with
+  `analysis/scripts/diagnose_gcc_phat.py`: the reference is fine (autocorrelation PSR 38-67 dB
+  -- cause (a), reference periodicity, ruled out); the failure is PHAT over-weighting
+  noise-dominated HF and bass-rolled-off LF bands (cause (b)). **Fix validated**: band-limiting
+  to 500-4000 Hz recovers PSR ~10 dB and a consistent +97 ms speaker->mic round-trip offset.
+  Applying the band-limited fix across the full sweep and recording the per-cell PSR/offset
+  table is the remaining item -- see "Next steps" item 7.
+- Tier 2 (instrumented) — done and green on the Pixel 10 (see "Implementation status" above).
+- Tier 3 (manual 36-cell sweep) — done, 36/36 clean (see above / `test2-sweep-results.md`).
 
 See "Next steps," at the end of this doc, for the concrete sequencing of the above.
 
@@ -413,13 +420,26 @@ In rough dependency order, picking up from "Implementation status" above:
    that is Tier-3 work below, gated on the real reference track (item 5).
 4. ~~**Write and run the Tier 2 instrumented tests**~~ — done and green on a real Pixel 10 (see
    "Implementation status" above), including the XRun diagnosis/fix that surfaced there.
-5. ~~**Replace the synthetic placeholder reference track**~~ — **done (2026-07-05).** The real
-   `boots.wav` (repo root, 44.1kHz mono) is resampled to the device's native 48kHz mono/16-bit via
-   `analysis/scripts/resample_wav.py` (rational 160/147, anti-aliased) and bundled as
-   `harness/src/main/assets/reference_track.wav`; format gated with `analysis/scripts/inspect_wav.py`.
-   Neither `boots.wav` nor the bundled asset is committed (gitignored — audio never in Git). It is
-   5.89s (under Components §1's suggested 10-20s; fine for GCC-PHAT, just noted). See
+5. ~~**Replace the synthetic placeholder reference track**~~ — **done (2026-07-05, re-recorded).**
+   The real `boots.wav` (repo root, 48kHz mono, 15.25s) is bundled as
+   `harness/src/main/assets/reference_track.wav` (already at the device's native rate, so
+   `resample_wav.py` copies through with no rate change); format gated with
+   `analysis/scripts/inspect_wav.py`. Neither `boots.wav` nor the bundled asset is committed
+   (gitignored — audio never in Git). 15.25s is within Components §1's suggested 10-20s. See
    `reference_track_README.md` for the regenerate-after-checkout command.
-6. **Tier 3 manual checkpoints and Components §4's data-pull/analysis integration** — the latter
-   needs real captures to feed through the now-implemented Python GCC-PHAT (`analysis/`), so it's
-   blocked on items 2–4 above, not on step 1.
+6. ~~**Tier 3 manual checkpoints and Components §4's data-pull/analysis integration**~~ — **done
+   (2026-07-05).** The 36-cell manual sweep ran (36/36 clean) and the pairs are pulled and fed
+   through the Python GCC-PHAT. The full-band pass failed (0/36); see `test2-sweep-results.md`'s
+   "GCC-PHAT offline pass" and the diagnosis in `analysis/scripts/diagnose_gcc_phat.py`.
+7. **Apply the band-limited PHAT fix and re-run the sweep pass** — add a `--band-pass` option to
+   `run_gcc_phat_sweep.py` (default off, so full-band remains available for diagnosis), re-run on
+   the 36 captures with `--band-pass 500,4000`, and record the per-cell PSR + recovered-offset
+   table. Expected: most cells recover to ~9-10 dB PSR at ~97 ms; the quiet/far/pocketed edge
+   cells may stay below 6 dB -- which is the finding the sweep exists to surface (where does
+   alignment stop being trustworthy). This is the actual Test 2 step 2 deliverable.
+8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the
+   gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
+   gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md
+   finding 2.
+9. **Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`** so the
+   desk-vs-wall geometry contamination that forced the redo cannot recur on a future sweep.
