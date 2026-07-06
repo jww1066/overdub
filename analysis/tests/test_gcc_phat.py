@@ -167,3 +167,59 @@ def test_zero_snr_does_not_crash_and_still_reports_a_peak() -> None:
     result = gcc_phat(ref, mic, fs=FS)
     assert isinstance(result.offset_samples, int)
     assert np.isfinite(result.psr_db) or result.psr_db == float("inf")
+
+
+# ---------------------------------------------------------------------------
+# Lag-window constraint (next-steps item 7a): reject wraparound aliases
+# ---------------------------------------------------------------------------
+
+
+def test_lag_window_recovers_delay_inside_window() -> None:
+    """A true delay inside the window is recovered exactly, PSR still confident."""
+    ref = _reference()
+    d = 200
+    mic = add_noise_at_snr(delay(ref, d), HIGH_SNR_DB, np.random.default_rng(RNG_SEED))
+    result = gcc_phat(ref, mic, fs=FS, lag_window=(0, 480))
+    assert result.offset_samples == d
+    assert result.psr_db >= 10.0
+
+
+def test_lag_window_passing_none_matches_default() -> None:
+    """Explicit lag_window=None is identical to the unconstrained default (regression)."""
+    ref = _reference()
+    mic = add_noise_at_snr(delay(ref, 123), HIGH_SNR_DB, np.random.default_rng(RNG_SEED))
+    a = gcc_phat(ref, mic, fs=FS)
+    b = gcc_phat(ref, mic, fs=FS, lag_window=None)
+    assert a.offset_samples == b.offset_samples
+    assert a.psr_db == pytest.approx(b.psr_db)
+
+
+def test_lag_window_forces_result_into_window() -> None:
+    """A window that excludes the true delay forces the argmax into the window.
+
+    This is the wraparound-alias guard: a physically-impossible offset can never
+    be returned once the plausible window is set, even if it were the global max.
+    """
+    ref = _reference()
+    d = 200
+    mic = add_noise_at_snr(delay(ref, d), HIGH_SNR_DB, np.random.default_rng(RNG_SEED))
+    result = gcc_phat(ref, mic, fs=FS, lag_window=(300, 600))
+    assert 300 <= result.offset_samples <= 600
+    assert result.offset_samples != d
+
+
+def test_lag_window_recovers_negative_delay_when_window_allows() -> None:
+    """A negative (mic-leading) delay is still recoverable if the window includes it."""
+    ref = _reference()
+    d = -200
+    mic = add_noise_at_snr(delay(ref, d), HIGH_SNR_DB, np.random.default_rng(RNG_SEED))
+    result = gcc_phat(ref, mic, fs=FS, lag_window=(-480, 480))
+    assert result.offset_samples == d
+
+
+def test_lag_window_selecting_nothing_raises() -> None:
+    """A window with no representable offsets is a caller error, not a silent 0."""
+    ref = _reference()
+    mic = delay(ref, 100)
+    with pytest.raises(ValueError):
+        gcc_phat(ref, mic, fs=FS, lag_window=(10**9, 10**9 + 1))

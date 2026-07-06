@@ -440,18 +440,22 @@ In rough dependency order, picking up from "Implementation status" above:
    band-limited population re-run exists (`run_bandlimited_gcc_phat_sweep.py`, all 36) and shows
    PSR recovers broadly (35/36 >= 6 dB), but the recovered *offset* is not yet trustworthy. Three
    sub-items, in order:
-   - **7a. Constrain the lag search to a physically plausible window** (e.g. 0-300 ms) in
-     `gcc_phat` (an optional `max_lag`/`lag_window` arg). This removes the circular-correlation
-     wraparound aliases -- e.g. the -15.25 s "confident" cell -- that the current full-vector
-     argmax can win. Do this first; the per-cell offsets aren't meaningful until it's in.
-   - **7b. Re-check the PSR sidelobe-exclusion window vs the post-bandpass main-lobe width**
-     (`measure_main_lobe_width.py`). Bandpassing widens the main lobe; the fixed 2-sample
-     `psr_exclusion` (tuned for a full-band click train) makes PSR go nearly flat (~11 dB across an
-     8x bleed range), i.e. it's measuring the filter's autocorrelation shape, not peak sharpness.
-     Recalibrate so the dB number means "trustworthy alignment" again.
-   - **7c. Re-run and record the per-cell PSR + offset table** with 7a/7b in place. Only then is
-     this the Test 2 step 2 deliverable -- and the ±2 ms-vs-ground-truth half of the bar still
-     waits on Test 1's loopback number (see "Sequencing dependencies").
+   - ~~**7a. Constrain the lag search to a physically plausible window**~~ -- **done.** `gcc_phat`
+     gained an optional `lag_window` (samples-of-offset bounds, default `None` = unchanged) that
+     restricts both the argmax and the PSR sidelobe search; `run_bandlimited_gcc_phat_sweep.py`
+     applies `(0, 300 ms)` by default. The -15.25 s "confident" wraparound cell now recovers +65 ms;
+     verdicts improved to 33 confident / 2 minimum / 1 below. Unit-tested in `test_gcc_phat.py`.
+   - ~~**7b. Re-check the PSR sidelobe-exclusion vs the post-bandpass main-lobe width**~~ -- **done;
+     the suspected miscalibration was not real.** `measure_main_lobe_width.py` (new band-limited
+     mode) measured a first-null half-width of **1 sample**, not the ~7 the `1/(2*BW)` rule predicts:
+     PHAT re-whitens the spectrum, so the peak stays impulse-sharp even after bandpassing. The fixed
+     `psr_exclusion=2` was already adequate and PSR is insensitive to it (10.5 dB at exclusion 1/2/3).
+     No change made -- a "measure before changing, the default was fine" outcome.
+   - **7c. Re-run and record the per-cell PSR + offset table** -- done for the current correlator
+     (`gcc_phat_bandlimited_results.csv`; offsets 61-151 ms, mean 97.2, std 17.5). It is **not yet
+     the Test 2 step 2 pass**: the ±2 ms-vs-ground-truth half of the bar still waits on Test 1's
+     loopback number (see "Sequencing dependencies"), and the 61-151 ms spread can't be confirmed as
+     benign per-capture start jitter (vs residual misalignment) without that ground truth.
    - Optional cleanup: fold the band-pass into `run_gcc_phat_sweep.py` as a `--band-pass` flag so
      there's one sweep script instead of two, once the correlator changes settle.
 8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the

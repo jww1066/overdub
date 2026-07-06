@@ -84,6 +84,7 @@ def gcc_phat(
     *,
     eps: float = 1e-12,
     psr_exclusion: int = 2,
+    lag_window: tuple[int | None, int | None] | None = None,
 ) -> GccPhatResult:
     """Estimate the time delay of ``mic`` relative to ``reference`` via GCC-PHAT.
 
@@ -101,6 +102,22 @@ def gcc_phat(
     psr_exclusion :
         Half-width (in samples) of the window around the main peak excluded
         from sidelobe level computation. Must be ≥ 0.
+    lag_window :
+        Optional ``(min_offset, max_offset)`` bound, in **samples of offset**
+        (same sign convention as ``offset_samples``: positive = mic lags), that
+        restricts *both* the peak search and the sidelobe (PSR) search to
+        physically plausible offsets. Either endpoint may be ``None`` for an
+        open bound. ``None`` (the default) searches the whole correlation and
+        preserves the original unconstrained behavior.
+
+        This exists because an unconstrained argmax over the full circular
+        correlation can win on a *wraparound alias* — a sharp peak at an offset
+        near ±(signal length) — which is physically impossible for a
+        speaker→mic round-trip yet still scores a high PSR. A real capture path
+        has a bounded, positive latency (e.g. ``(0, int(0.3 * fs))`` for
+        0–300 ms); constraining to it removes those aliases and makes PSR a
+        trustworthy sidelobe ratio *within the plausible set* rather than
+        against the whole vector.
 
     Returns
     -------
@@ -119,24 +136,30 @@ def gcc_phat(
 
     gcc = _cross_spectrum_phat(x, y, nfft, eps)
 
-    lag_index = int(np.argmax(gcc))
-    peak = float(gcc[lag_index])
-
-    # Map the raw [0, nfft) index to a signed lag. Indices above nfft//2
+    # Offset (samples) for every raw index, vectorized. Indices above nfft//2
     # represent negative lags under the periodic FFT convention. With the
     # cross-spectrum X*conj(Y), gcc[m] = Σ_n x[n]·y[n−m], which peaks at
-    # m = −d when mic[n] = reference[n−d]; the sign flip below recovers d.
-    if lag_index > nfft // 2:
-        signed_lag = lag_index - nfft
+    # m = −d when mic[n] = reference[n−d]; the sign flip recovers d.
+    idx = np.arange(nfft)
+    signed_lag_all = np.where(idx > nfft // 2, idx - nfft, idx)
+    offset_all = -signed_lag_all
+
+    if lag_window is not None:
+        candidate_mask = _lag_window_mask(offset_all, lag_window)
+        if not candidate_mask.any():
+            raise ValueError(f"lag_window {lag_window} selects no samples in [{-(nfft // 2)}, {nfft // 2}]")
+        # Restrict argmax to the plausible offsets.
+        masked = np.where(candidate_mask, gcc, -np.inf)
+        lag_index = int(np.argmax(masked))
     else:
-        signed_lag = lag_index
-    offset_samples = -signed_lag
+        candidate_mask = None
+        lag_index = int(np.argmax(gcc))
 
-    offset_seconds = (
-        None if fs is None else offset_samples / float(fs)
-    )
+    peak = float(gcc[lag_index])
+    offset_samples = int(offset_all[lag_index])
+    offset_seconds = None if fs is None else offset_samples / float(fs)
 
-    psr_db = _psr_db(gcc, peak, lag_index, psr_exclusion, nfft)
+    psr_db = _psr_db(gcc, peak, lag_index, psr_exclusion, nfft, candidate_mask)
 
     return GccPhatResult(
         offset_samples=offset_samples,
@@ -146,17 +169,41 @@ def gcc_phat(
     )
 
 
+def _lag_window_mask(
+    offset_all: np.ndarray, lag_window: tuple[int | None, int | None]
+) -> np.ndarray:
+    """Boolean mask of indices whose recovered offset lies within ``lag_window``."""
+    lo, hi = lag_window
+    mask = np.ones(offset_all.shape, dtype=bool)
+    if lo is not None:
+        mask &= offset_all >= lo
+    if hi is not None:
+        mask &= offset_all <= hi
+    return mask
+
+
 def _psr_db(
-    gcc: np.ndarray, peak: float, peak_idx: int, exclusion: int, nfft: int
+    gcc: np.ndarray,
+    peak: float,
+    peak_idx: int,
+    exclusion: int,
+    nfft: int,
+    candidate_mask: np.ndarray | None = None,
 ) -> float:
-    """Peak-to-sidelobe ratio in dB, excluding ±``exclusion`` around the peak."""
+    """Peak-to-sidelobe ratio in dB, excluding ±``exclusion`` around the peak.
+
+    When ``candidate_mask`` is given (a lag-window restriction), sidelobes are
+    measured only within that window — the ratio is then against the largest
+    competing peak in the *plausible* set, not against a wraparound alias
+    outside it that no valid alignment could ever have chosen.
+    """
     if exclusion >= nfft // 2:
         # The exclusion window covers the whole vector — no sidelobes to speak of.
         return float("inf")
 
     lo = max(0, peak_idx - exclusion)
     hi = min(nfft, peak_idx + exclusion + 1)
-    mask = np.ones(nfft, dtype=bool)
+    mask = np.ones(nfft, dtype=bool) if candidate_mask is None else candidate_mask.copy()
     mask[lo:hi] = False
     sidelobes = np.abs(gcc[mask])
     if sidelobes.size == 0 or sidelobes.max() <= 0:

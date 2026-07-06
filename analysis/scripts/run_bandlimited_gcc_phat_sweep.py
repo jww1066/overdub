@@ -97,6 +97,14 @@ def main() -> int:
     parser.add_argument("--reference", default="../harness/src/main/assets/reference_track.wav")
     parser.add_argument("--lo", type=float, default=500.0, help="bandpass low edge (Hz)")
     parser.add_argument("--hi", type=float, default=4000.0, help="bandpass high edge (Hz)")
+    parser.add_argument(
+        "--max-lag-ms",
+        type=float,
+        default=300.0,
+        help="constrain the GCC-PHAT search to [0, max-lag-ms] ms of positive offset "
+        "(a physically plausible speaker->mic round-trip); rejects wraparound aliases. "
+        "Set to 0 to disable the constraint (full unconstrained argmax).",
+    )
     parser.add_argument("--output-csv", default=None)
     args = parser.parse_args()
 
@@ -114,8 +122,10 @@ def main() -> int:
 
     ref, ref_rate = _read_wav_mono(Path(args.reference))
     ref_bp = _bandpass(ref, args.lo, args.hi, ref_rate)
+    lag_window = (0, int(args.max_lag_ms * 1e-3 * ref_rate)) if args.max_lag_ms > 0 else None
     print(f"reference: {args.reference}  {len(ref)} samples  {ref_rate} Hz")
     print(f"band: {args.lo:.0f}-{args.hi:.0f} Hz  sweep dir: {sweep_dir} ({len(wav_paths)} captures)")
+    print(f"lag window: {'0-%.0f ms (aliases rejected)' % args.max_lag_ms if lag_window else 'unconstrained'}")
     print()
 
     rows = []
@@ -127,7 +137,7 @@ def main() -> int:
 
         full = gcc_phat(ref, mic, fs=ref_rate)
         mic_bp = _bandpass(mic, args.lo, args.hi, mic_rate)
-        bp = gcc_phat(ref_bp, mic_bp, fs=ref_rate)
+        bp = gcc_phat(ref_bp, mic_bp, fs=ref_rate, lag_window=lag_window)
 
         meta = json.loads(json_path.read_text()) if json_path.exists() else {}
         rows.append({

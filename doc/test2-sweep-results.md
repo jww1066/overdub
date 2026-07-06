@@ -233,21 +233,44 @@ blesses). Per-cell CSV: `analysis/sweep_data/gcc_phat_bandlimited_results.csv` (
 regeneratable). This is *not* the Test 2 step 2 pass -- the ±2 ms-vs-ground-truth bar also still
 waits on Test 1's loopback number.
 
+### Lag-window fix + PSR-exclusion re-check (2026-07-05, items 7a/7b)
+
+- **7a -- lag-window constraint (done).** `gcc_phat` gained an optional `lag_window`
+  (samples-of-offset bounds; default `None` = unchanged) that restricts both the argmax and the
+  PSR sidelobe search to a plausible offset range. `run_bandlimited_gcc_phat_sweep.py` now applies
+  `(0, 300 ms)` by default. Re-run with it: the `-15,253 ms` wraparound cell
+  (`conversational_far_faceup_pocketed`) now recovers **+65 ms at PSR 12.8 dB**, and verdicts
+  improve to **33 confident / 2 minimum / 1 below** (removing the alias also stops it competing as
+  a sidelobe elsewhere). Offsets now sit in **61-151 ms, mean 97.2, std 17.5 ms** -- the original
+  single-cell "+97 ms" is the *population mean*, with real per-capture spread. Unit tests added
+  (`test_gcc_phat.py`: window recovers in-window delay, forces result into window, rejects an
+  empty window, `None` matches default).
+- **7b -- PSR exclusion re-check (done; the suspected miscalibration was NOT real).**
+  `measure_main_lobe_width.py` gained a band-limited real-signal mode. Measured post-bandpass
+  main-lobe first-null half-width = **1 sample** for both the clean reference autocorrelation and
+  the baseline capture -- *not* the ~7 samples the `1/(2*BW)` rule predicts, because **PHAT
+  re-whitens the spectrum and keeps the peak impulse-sharp even after bandpassing.** So the fixed
+  `psr_exclusion=2` was already adequate; PSR is insensitive to it (10.5 dB at exclusion 1/2/3).
+  The flat ~11 dB PSR across the bleed range is therefore a *genuine* peak-to-sidelobe ratio, not
+  an exclusion artifact -- the earlier hypothesis is disconfirmed. (A textbook "measure before
+  changing -- the default was fine" outcome; no change made.)
+- **What still blocks calling this a pass:** whether 97 ms is the *correct* round-trip (the ±2 ms
+  bar) needs Test 1's loopback ground truth, which doesn't exist yet. The 61-151 ms spread is
+  plausibly per-capture playback/capture-start jitter (separate un-sample-synced recordings), but
+  cannot be confirmed as such -- or ruled out as residual misalignment -- without that ground truth.
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
   re-run" above): cause (b), band-limited bleed, confirmed; band-limiting recovers 35/36.
-- **Constrain the GCC-PHAT lag search to a physically plausible window (e.g. 0-300 ms) before
-  trusting any offset or PSR.** This is the fix for the -15.25 s wraparound that scored "confident"
-  -- restricting argmax to positive, sub-300 ms lags removes the circular-correlation aliases that
-  the current full-vector argmax can win. Do this before re-reporting the per-cell offset table as
-  a result; the current 35/36 "pass" is a PSR-only count and is not yet a trustworthy alignment.
-- **Re-check the PSR sidelobe-exclusion window against the post-bandpass main-lobe width**
-  (`measure_main_lobe_width.py`). Bandpassing to 500-4000 Hz widens the correlation main lobe, and
-  the fixed 2-sample `psr_exclusion` was tuned for a full-band click train -- the flat ~11 dB PSR
-  across an 8x bleed range suggests the metric is measuring the filter's autocorrelation shape, not
-  the true peak. Recalibrate the exclusion (or switch to a main-lobe-relative PSR) so the dB number
-  means "trustworthy alignment" again.
+- ~~**Constrain the GCC-PHAT lag search to a plausible window**~~ -- done (item 7a above): `gcc_phat`
+  `lag_window`, `(0, 300 ms)` default in the sweep script; the -15.25 s wraparound is gone.
+- ~~**Re-check the PSR sidelobe-exclusion vs the post-bandpass main-lobe width**~~ -- done (item 7b
+  above): measured lobe is 1 sample (PHAT keeps the peak sharp); `psr_exclusion=2` was already
+  adequate, the suspected miscalibration was not real, no change made.
+- **Establish Test 1's loopback ground-truth latency** so the ±2 ms half of the pass bar can be
+  judged (blocked on the loopback rig; see `test2-step2-plan.md` "Sequencing dependencies"). Until
+  then the 97 ms offset is internally consistent but unverified against truth.
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).
