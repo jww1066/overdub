@@ -165,12 +165,38 @@ RMS is int16 scale.
    the dynamic range of the bleed across the 36-cell matrix, and the headroom the cancellation
    algorithm has to operate over.
 
+## GCC-PHAT offline pass (2026-07-05)
+
+Ran `analysis/scripts/run_gcc_phat_sweep.py` over the 36 captures vs the bundled reference track.
+**Result: 0/36 pass** -- 0 confident (>= 10 dB), 0 minimum (>= 6 dB), 36 below. PSR ranges
+0.6-5.8 dB. Recovered offsets are negative (-65 to -126 ms) and vary cell-to-cell, both wrong:
+the mic must lag the reference by a roughly constant system round-trip (a few ms, positive), not
+lead it by a varying ~100 ms. That signature means the GCC-PHAT argmax is landing on
+sidelobes/noise, not the true alignment peak; the low PSR confirms no sharp peak exists.
+
+The script's RMS matches the on-device logged RMS exactly per cell (e.g. quiet_near_faceup_none
+= 1734.8 in both), so the WAV/JSON I/O is correct and the issue is the correlation itself, not
+the script. This is a real finding, not a script bug: the synthetic GCC-PHAT validation (Test 2
+step 1) used a broadband click train (sharp autocorrelation, clean peak) and passed; the real
+beatbox reference plus real band-limited phone-speaker bleed do not satisfy GCC-PHAT's
+assumptions. Two candidate causes, to be diagnosed empirically (per CLAUDE.md, not guessed):
+
+- **(a) Reference quasi-periodicity** -- a beatbox clip has strong rhythmic autocorrelation
+  sidelobes that collapse PSR and let a sidelobe win argmax.
+- **(b) Band-limited bleed** -- a phone speaker rolls off highs, so the bleed has little HF
+  energy; PHAT's equal-per-band weighting then amplifies noise-dominated high bands and
+  corrupts the correlation.
+
+A reusable diagnostic script (autocorrelation PSR of the reference; magnitude spectrum of a
+capture vs the reference) will determine which dominates before choosing a fix -- a less-periodic
+reference, onset/transient-only correlation, or band-limited PHAT weighting. The per-cell CSV is
+at `analysis/sweep_data/gcc_phat_results.csv` (gitignored; regeneratable via the script).
+
 ## Next steps (post-sweep)
 
-- Pull the 36 WAV+JSON pairs off-device (`adb pull
-  /sdcard/Android/data/com.overdub.harness/files/sweep analysis/sweep_data`) and feed each through
-  the validated GCC-PHAT implementation (`analysis/src/overdub_analysis/gcc_phat.py`), recording
-  PSR and recovered offset per condition into a results table alongside each file's metadata.
+- **Diagnose the GCC-PHAT failure** (see "GCC-PHAT offline pass" above) before changing the
+  reference or the correlator -- measure the reference's autocorrelation PSR and the capture's
+  spectrum vs the reference to split cause (a) from cause (b).
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).
