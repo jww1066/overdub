@@ -95,13 +95,20 @@ items above.
   pinned in Components §3, and the cross-device meaning of the Pixel 10 numbers is documented (see
   "Cross-device generalization" below).
 
-**In progress — the manual 36-cell Tier-3 sweep (2026-07-05):** the real reference track is now
-bundled (item 5 below), both APKs are installed persistently on the Pixel 10, and a reusable per-cell
-runner (`harness/scripts/run_sweep_cell.sh <id>`) drives one cell via `am instrument` and echoes its
-RESULT line. The sweep is organized as **12 physical arrangements × 3 programmatic volumes** (volume
-costs no phone movement, so the operator repositions 12 times, not 36). Trusted cells captured so far:
-**0/36** — the operator loop has been set up but no trusted cell has been captured yet (the only
-on-device capture is the earlier placeholder-track baseline verification).
+**Done — the manual 36-cell Tier-3 sweep (2026-07-05):** the real reference track is bundled
+(item 5 below), both APKs installed persistently on the Pixel 10, and the reusable per-cell runner
+(`harness/scripts/run_sweep_cell.sh <id>`) drives one cell via `am instrument` and echoes its
+RESULT line. The sweep is organized as **12 physical arrangements × 3 programmatic volumes**
+(volume costs no phone movement, so the operator repositions 12 times, not 36). Trusted cells
+captured: **36/36, all clean** (0 XRuns, 0 dropped, `builtin_speaker`, 48 kHz across ~9 min of
+capture) — see `doc/test2-sweep-results.md` for the full matrix, file manifest, and findings.
+Note: the first six cells were captured with a desk-below-as-reflector geometry that collapses
+the distance/orientation axes and were discarded + redone with the canonical wall-as-reflector
+setup; the results doc records this and the follow-up to add a `reflector_geometry` field to
+`ConditionMetadata`. Headline findings: orientation dominates (face-down ~1.7-2.4x face-up),
+volume compresses sub-linearly (device-level AGC/amp + coupling-path), distance-to-wall is a
+weak lever end-to-end (far is not lower than armslength), and fabric attenuation is U-shaped in
+distance (not monotonic) because the 2 m room position has different multi-surface geometry.
 
 **Not started — Stage 2 steps 4+ (needs a physical device):**
 - Data pull + analysis integration (Components §4) — Test 2 step 1 (Python GCC-PHAT) is now
