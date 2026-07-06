@@ -16,7 +16,14 @@ class ConditionMetadataTest {
         sampleRate = 48000,
         xrunCount = 0,
         deviceModel = "Pixel 10",
+        streamVolumeIndex = 25,
         timestamp = 1751000000000L,
+        outputTimestampFrames = 480_000L,
+        outputTimestampNanos = 10_000_000_000L,
+        inputTimestampFrames = 475_200L,
+        inputTimestampNanos = 10_000_000_000L,
+        streamOffsetFrames = -4800.0,
+        streamOffsetMs = -100.0,
     )
 
     @Test
@@ -28,12 +35,22 @@ class ConditionMetadataTest {
 
     @Test
     fun `round-trips with optional fields missing`() {
-        val original = sample().copy(xrunCount = null, deviceModel = null)
+        val original = sample().copy(
+            xrunCount = null,
+            deviceModel = null,
+            outputTimestampFrames = null,
+            outputTimestampNanos = null,
+            inputTimestampFrames = null,
+            inputTimestampNanos = null,
+            streamOffsetFrames = null,
+            streamOffsetMs = null,
+        )
         val json = original.toJson()
         val decoded = conditionMetadataFromJson(json)
         assertEquals(original, decoded)
         assertEquals(null, decoded.xrunCount)
         assertEquals(null, decoded.deviceModel)
+        assertEquals(null, decoded.streamOffsetMs)
     }
 
     @Test
@@ -56,5 +73,9 @@ class ConditionMetadataTest {
         assertEquals(true, json.contains("\"sample_rate\""))
         assertEquals(true, json.contains("\"xrun_count\""))
         assertEquals(true, json.contains("\"device_model\""))
+        assertEquals(true, json.contains("\"stream_offset_frames\""))
+        assertEquals(true, json.contains("\"stream_offset_ms\""))
+        assertEquals(true, json.contains("\"output_timestamp_frames\""))
+        assertEquals(true, json.contains("\"input_timestamp_nanos\""))
     }
 }

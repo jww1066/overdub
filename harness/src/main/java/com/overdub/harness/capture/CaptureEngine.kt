@@ -10,6 +10,9 @@ import com.overdub.harness.condition.Condition
 import com.overdub.harness.dsp.rms
 import com.overdub.harness.metadata.ConditionMetadata
 import com.overdub.harness.metadata.toJson
+import com.overdub.harness.timestamp.StreamOffset
+import com.overdub.harness.timestamp.StreamTimestamps
+import com.overdub.harness.timestamp.computeStreamOffset
 import com.overdub.harness.wav.WavFormat
 import com.overdub.harness.wav.readWav
 import com.overdub.harness.wav.writeWav
@@ -51,6 +54,9 @@ data class CaptureResult(
     val sampleRate: Int,
     val outputRoute: String,
     val routeIsBuiltinSpeaker: Boolean,
+    /** Derived output<->input stream start misalignment (test2-step2-plan.md item 10); null if */
+    /** getTimestamp was unavailable on this device. */
+    val streamOffsetMs: Double?,
 )
 
 /** Thrown when a capture cannot even start (stream open/start failed); a run that starts but is */
@@ -159,6 +165,34 @@ class CaptureEngine(private val context: Context) {
             val actualRate = NativeBridge.nativeGetActualSampleRate().takeIf { it > 0 } ?: sampleRate
             val outputDeviceId = NativeBridge.nativeGetOutputDeviceId()
 
+            // Hardware stream timestamps (item 10): recover the per-session output<->input start
+            // misalignment so the offline decomposition can subtract it from the GCC-PHAT offset.
+            // Absent when getTimestamp is unsupported/failed on the device -- logged and left null
+            // rather than faked (getTimestamp accuracy is itself device-dependent).
+            val streamTimestamps: StreamTimestamps? = if (NativeBridge.nativeHasStreamTimestamps()) {
+                StreamTimestamps(
+                    outputFrames = NativeBridge.nativeGetOutputTimestampFrames(),
+                    outputNanos = NativeBridge.nativeGetOutputTimestampNanos(),
+                    inputFrames = NativeBridge.nativeGetInputTimestampFrames(),
+                    inputNanos = NativeBridge.nativeGetInputTimestampNanos(),
+                )
+            } else {
+                Log.w(TAG, "stream timestamps unavailable (getTimestamp failed/unsupported) -- stream offset omitted")
+                null
+            }
+            val streamOffset: StreamOffset? =
+                streamTimestamps?.let { computeStreamOffset(it, actualRate) }
+            if (streamOffset != null) {
+                Log.i(
+                    TAG,
+                    "stream offset %.1f frames (%.2f ms) out=(%d,%d) in=(%d,%d)".format(
+                        streamOffset.frames, streamOffset.ms,
+                        streamTimestamps.outputFrames, streamTimestamps.outputNanos,
+                        streamTimestamps.inputFrames, streamTimestamps.inputNanos,
+                    ),
+                )
+            }
+
             val (routeLabel, isSpeaker) = resolveOutputRoute(outputDeviceId)
             if (!isSpeaker) {
                 Log.w(TAG, "output route is '$routeLabel', not the built-in speaker -- capture may be invalid")
@@ -195,6 +229,12 @@ class CaptureEngine(private val context: Context) {
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
                 streamVolumeIndex = streamVolumeIndex,
                 timestamp = timestamp,
+                outputTimestampFrames = streamTimestamps?.outputFrames,
+                outputTimestampNanos = streamTimestamps?.outputNanos,
+                inputTimestampFrames = streamTimestamps?.inputFrames,
+                inputTimestampNanos = streamTimestamps?.inputNanos,
+                streamOffsetFrames = streamOffset?.frames,
+                streamOffsetMs = streamOffset?.ms,
             )
             jsonFile.writeText(metadata.toJson())
 
@@ -210,6 +250,7 @@ class CaptureEngine(private val context: Context) {
                 sampleRate = actualRate,
                 outputRoute = routeLabel,
                 routeIsBuiltinSpeaker = isSpeaker,
+                streamOffsetMs = streamOffset?.ms,
             )
         } finally {
             NativeBridge.nativeClose()

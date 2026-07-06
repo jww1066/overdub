@@ -110,8 +110,20 @@ Python) so dependency versions stay pinned.
   once) does not have it -- so the spread confounds *validation*, not the alignment mechanism. The
   clean decomposition needs no loopback rig: both streams expose `getTimestamp()` (a
   `(framePosition, nanoTime)` pair on a common clock, with DAC/ADC latency folded in), so subtracting
-  the timestamp-derived stream offset from the GCC-PHAT offset should leave only the tiny constant
-  acoustic-flight term -- residual collapsing confirms jitter, staying wide confirms real error.
+  the timestamp-derived stream offset from the GCC-PHAT offset isolates the harness jitter from the
+  fixed latency. **Confirmed empirically** (2026-07-05, Pixel 10): the cleanest isolation is to
+  capture the *same* cell N times with the phone untouched -- the acoustic path is then constant, so
+  *all* run-to-run offset variation is start-jitter, with no acoustic differences confounding it (a
+  varied-cell set mixes the two). 9 same-cell repeats swung 73-119 ms in GCC-PHAT offset (std 13.4 ms)
+  even unmoved; subtracting `stream_offset_ms` collapsed the std to 5.5 ms (59%) -- the timestamps
+  track the jitter and remove most of it. Two calibration notes the naive "residual = acoustic flight"
+  prediction misses: (1) the residual *mean* was a large fixed **~201 ms constant**, not sub-ms -- a
+  measurement-basis offset (the captured WAV's sample 0 does not equal input-stream frame 0 once the
+  maxed input buffer + startup drain gap fold in), which is constant, hence calibration not jitter,
+  and irrelevant to the benign-vs-real verdict (that turns on the *std* collapse). (2) The collapse is
+  partial, not total (5.5 ms residual std remains from getTimestamp granularity + correlation
+  quantization) -- report it as "most of the spread," not "fully explained." Confirming the fixed
+  constant is *honest* is the loopback rig's separate job (the moto g(20) reported a wrong number).
   General lesson: when a measured offset comes from correlating two independently-scheduled streams,
   attribute the run-to-run spread to the measurement rig (and measure it with the platform's own
   clock) before attributing it to the estimator. See `doc/guides/on-device-audio.md` for the

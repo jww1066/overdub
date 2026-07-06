@@ -71,4 +71,24 @@ object NativeBridge {
 
     /** Actual negotiated output sample rate (may differ from the requested rate). */
     external fun nativeGetActualSampleRate(): Int
+
+    /**
+     * True if both streams' [getTimestamp()][nativeGetOutputTimestampFrames] reads succeeded while
+     * RUNNING (latched at [nativeStop]). False when getTimestamp is unavailable/unsupported on the
+     * device -- callers then omit the stream-offset fields from metadata rather than logging a
+     * bogus value (see test2-step2-plan.md item 10; getTimestamp accuracy is itself device-dependent).
+     */
+    external fun nativeHasStreamTimestamps(): Boolean
+
+    /** Output-stream timestamp frame position (valid only when [nativeHasStreamTimestamps]). */
+    external fun nativeGetOutputTimestampFrames(): Long
+
+    /** Output-stream timestamp nanoTime on CLOCK_MONOTONIC (valid only when [nativeHasStreamTimestamps]). */
+    external fun nativeGetOutputTimestampNanos(): Long
+
+    /** Input-stream timestamp frame position (valid only when [nativeHasStreamTimestamps]). */
+    external fun nativeGetInputTimestampFrames(): Long
+
+    /** Input-stream timestamp nanoTime on CLOCK_MONOTONIC (valid only when [nativeHasStreamTimestamps]). */
+    external fun nativeGetInputTimestampNanos(): Long
 }

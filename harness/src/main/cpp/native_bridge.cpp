@@ -114,4 +114,36 @@ Java_com_overdub_harness_NativeBridge_nativeGetActualSampleRate(JNIEnv * /* env 
     return gEngine ? gEngine->actualSampleRate() : 0;
 }
 
+// --- Hardware stream timestamps (test2-step2-plan.md item 10) ---
+
+JNIEXPORT jboolean JNICALL
+Java_com_overdub_harness_NativeBridge_nativeHasStreamTimestamps(JNIEnv * /* env */,
+                                                                jobject /* this */) {
+    return (gEngine && gEngine->hasStreamTimestamps()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetOutputTimestampFrames(JNIEnv * /* env */,
+                                                                    jobject /* this */) {
+    return gEngine ? static_cast<jlong>(gEngine->outputTimestampFrames()) : -1;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetOutputTimestampNanos(JNIEnv * /* env */,
+                                                                   jobject /* this */) {
+    return gEngine ? static_cast<jlong>(gEngine->outputTimestampNanos()) : -1;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetInputTimestampFrames(JNIEnv * /* env */,
+                                                                   jobject /* this */) {
+    return gEngine ? static_cast<jlong>(gEngine->inputTimestampFrames()) : -1;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetInputTimestampNanos(JNIEnv * /* env */,
+                                                                  jobject /* this */) {
+    return gEngine ? static_cast<jlong>(gEngine->inputTimestampNanos()) : -1;
+}
+
 }  // extern "C"

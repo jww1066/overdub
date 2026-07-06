@@ -323,6 +323,58 @@ cells with timestamp logging added -- which is also **Test 1a's mechanism pulled
 design's device-agnostic alignment hedge, `prototype-plan.md`). See `test2-step2-plan.md` "Next
 steps."
 
+### Stream-timestamp decomposition confirmed: run-to-run spread is largely harness jitter (2026-07-05, item 10)
+
+The `getTimestamp()` logging is now implemented (`FullDuplexEngine::readStreamTimestamps()` ->
+`stream_offset_ms` in the sidecar; derivation `computeStreamOffset` unit-tested; offline
+`decompose_offset.py`), verified on the Pixel 10, and the decomposition study was run.
+
+**Method (needs no loopback rig, no repositioning):** capture the **same** baseline cell
+`conversational_armslength_faceup_none` **9 times back-to-back**
+(`harness/scripts/repeat_sweep_cell.sh <id> 8`, plus one earlier run) with the phone untouched, so the
+acoustic round-trip is held constant and *any* run-to-run offset variation must be per-session
+harness start-jitter. All 9 captures were clean (RMS ~7760-7785, 0 XRun, `builtin_speaker`), and
+`getTimestamp` succeeded on both streams every time (not a moto-g(20) failure). Analyzed via
+`run_bandlimited_gcc_phat_sweep.py --sweep-dir timestamp_study` then `decompose_offset.py`.
+
+**Result:**
+
+| Quantity (same cell, phone unmoved, n=9) | mean | std | min..max |
+|---|---|---|---|
+| GCC-PHAT offset (band-limited 500-4000) | 105.3 ms | **13.4 ms** | 73.1..119.1 |
+| `getTimestamp` stream offset | -95.9 ms | ~13 ms | -124.9..-80.2 |
+| Residual = GCC-PHAT - stream offset | 201.1 ms | **5.5 ms** | 191.3..209.2 |
+
+Two things this establishes:
+
+1. **The run-to-run spread is a measurement artifact, confirmed empirically, not just argued.** With
+   the phone *never moved*, the recovered GCC-PHAT offset still swings 73-119 ms (std 13.4 ms) --
+   comparable to the whole 61-151 ms *cross-cell* spread that had looked alarming. So a large share of
+   that cross-cell spread was per-session start jitter, not the estimator disagreeing about alignment
+   or real acoustic differences between positions. This is exactly the
+   `doc/guides/offline-dsp.md` "run-to-run spread can be a measurement artifact" lesson, now with a
+   number behind it.
+2. **The hardware timestamps track that jitter and remove most of it.** Subtracting `stream_offset_ms`
+   collapses the std from 13.4 ms to **5.5 ms (a 59% reduction)** -- the stream offset moves run-to-run
+   *with* the GCC-PHAT offset, which is the sign the two share a cause. The remaining 5.5 ms (getTimestamp
+   granularity + band-limited-correlation quantization at these PSRs) is inside the 15 ms drift budget.
+
+**Caveat -- a large fixed constant remains, and that is the loopback rig's job, not this study's.** The
+residual *mean* is +201 ms, not the ~sub-ms pure acoustic flight the naive derivation predicts. That
+~200 ms is a fixed measurement-basis offset between the two clocks (e.g. the captured WAV's sample 0
+does not correspond to input-stream frame 0 once the maxed input buffer + startup drain gap are folded
+in, and/or a systematic getTimestamp latency-reporting convention). It is **constant** (residual std is
+small), so it is a calibration term, not jitter -- irrelevant to the "is the spread benign" question,
+which turns on the std collapse. Confirming that constant is *honest* (that the Pixel's reported
+timestamps aren't lying) is precisely the independent loopback check, still pending the rig. So the
+verdict: the spread is substantially removable harness jitter (validated), on top of a fixed offset the
+loopback will later pin down.
+
+Study captures live in the gitignored `analysis/timestamp_study/` (durable record is this section).
+Not yet done: repeating the decomposition across *varied* physical cells (the cross-cell spread also
+carries real acoustic differences the same-cell study deliberately excludes), and the loopback honesty
+check.
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
@@ -338,11 +390,12 @@ steps."
 - ~~**Test whether a narrower band (1000-4000 Hz) is a strict improvement**~~ -- done, **rejected**
   (see "band trade-off" above): it clears 36/36 but demotes the gate-critical baseline confident ->
   minimum. Keep 500-4000. `gcc_phat_1000_4000_results.csv` retained for the record.
-- **Decompose the 61-151 ms offset spread with hardware timestamps (no loopback rig needed).** Add
-  `getTimestamp()` logging for both streams to the harness, re-capture a few cells, and subtract the
-  timestamp-derived stream offset from the GCC-PHAT offset to see whether the residual collapses to a
-  constant (jitter) or stays wide (real error). This doubles as building Test 1a. See
-  `test2-step2-plan.md` "Next steps."
+- ~~**Decompose the 61-151 ms offset spread with hardware timestamps (no loopback rig needed).**~~ --
+  **done (see "Stream-timestamp decomposition confirmed" above).** Same-cell x9 study: subtracting the
+  `getTimestamp` stream offset collapses the run-to-run std 13.4 -> 5.5 ms (59%), confirming most of the
+  spread is per-session harness start-jitter, benign and removable. A fixed ~201 ms residual constant
+  remains for the loopback rig to calibrate. Still to do: repeat across *varied* cells, and the loopback
+  honesty check.
 - **Establish Test 1's loopback ground-truth latency** so the ±2 ms half of the pass bar can be
   judged (blocked on the loopback rig; see `test2-step2-plan.md` "Sequencing dependencies"). Until
   then the 97 ms offset is internally consistent but unverified against truth.

@@ -51,6 +51,7 @@ env/
 # discard README live here). Never committed -- the durable record is doc/test2-sweep-results.md.
 analysis/sweep_discarded*/
 analysis/sweep_data/
+analysis/timestamp_study/
 
 # OS / editor cruft
 .DS_Store

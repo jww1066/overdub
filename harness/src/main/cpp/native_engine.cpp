@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 
 #include <android/log.h>
 
@@ -154,6 +155,12 @@ int FullDuplexEngine::start() {
 }
 
 void FullDuplexEngine::stop() {
+    // Read hardware timestamps while both streams are still RUNNING (item 10) -- must happen before
+    // requestStop() below. Latched once, so a repeat stop() (streams already stopped) is a no-op.
+    if (!mHasTimestamps.load(std::memory_order_relaxed)) {
+        readStreamTimestamps();
+    }
+
     // Stop the callback reading input before the input stream is torn down.
     mInputStarted.store(false, std::memory_order_release);
     if (mOutputStream) mOutputStream->requestStop();
@@ -196,6 +203,32 @@ void FullDuplexEngine::close() {
         mInputStream->close();
         mInputStream.reset();
     }
+}
+
+void FullDuplexEngine::readStreamTimestamps() {
+    if (!mOutputStream || !mInputStream) return;
+
+    // getTimestamp() is only valid while the stream is RUNNING; it returns an error otherwise. Read
+    // both against the same CLOCK_MONOTONIC the derived-offset math assumes. Each pair is internally
+    // consistent (framePosition happened at nanoTime), so the few microseconds between the two calls
+    // don't matter -- the Kotlin side combines them algebraically at a common reference, not by
+    // assuming the two reads are simultaneous.
+    auto outTs = mOutputStream->getTimestamp(CLOCK_MONOTONIC);
+    auto inTs = mInputStream->getTimestamp(CLOCK_MONOTONIC);
+    if (!outTs || !inTs) {
+        LOGW("getTimestamp unavailable (out=%s in=%s) -- stream offset will be absent from metadata",
+             oboe::convertToText(outTs.error()), oboe::convertToText(inTs.error()));
+        return;
+    }
+
+    mOutputTsFrames = outTs.value().position;
+    mOutputTsNanos = outTs.value().timestamp;
+    mInputTsFrames = inTs.value().position;
+    mInputTsNanos = inTs.value().timestamp;
+    mHasTimestamps.store(true, std::memory_order_relaxed);
+    LOGI("stream timestamps: out=(%lld frames, %lld ns) in=(%lld frames, %lld ns)",
+         static_cast<long long>(mOutputTsFrames), static_cast<long long>(mOutputTsNanos),
+         static_cast<long long>(mInputTsFrames), static_cast<long long>(mInputTsNanos));
 }
 
 size_t FullDuplexEngine::capturedSampleCount() {

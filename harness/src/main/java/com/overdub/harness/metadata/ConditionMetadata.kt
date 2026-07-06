@@ -15,6 +15,13 @@ import kotlinx.serialization.json.Json
  * §2's AudioTrack.setVolume() analogue). [streamVolumeIndex] records the fixed STREAM_MUSIC index
  * the harness pins at startup, so `playback_volume` is reproducible in absolute terms rather than
  * only relative to whatever the OS volume slider happened to be at.
+ *
+ * The stream-timestamp fields (test2-step2-plan.md item 10) are all nullable together: they are
+ * present only when `getTimestamp()` succeeded on both streams (device-dependent). [streamOffsetMs]
+ * is the derived per-session output<->input start misalignment; subtracting it from this cell's
+ * GCC-PHAT offset offline decomposes the 61-151 ms cross-cell spread into harness start-jitter
+ * (removable) vs real alignment error. The raw `*TimestampFrames`/`*TimestampNanos` pairs are logged
+ * so the derivation is auditable and re-derivable, not just the collapsed scalar.
  */
 @Serializable
 data class ConditionMetadata(
@@ -30,6 +37,12 @@ data class ConditionMetadata(
     @SerialName("device_model") val deviceModel: String? = null,
     @SerialName("stream_volume_index") val streamVolumeIndex: Int? = null,
     @SerialName("timestamp") val timestamp: Long,
+    @SerialName("output_timestamp_frames") val outputTimestampFrames: Long? = null,
+    @SerialName("output_timestamp_nanos") val outputTimestampNanos: Long? = null,
+    @SerialName("input_timestamp_frames") val inputTimestampFrames: Long? = null,
+    @SerialName("input_timestamp_nanos") val inputTimestampNanos: Long? = null,
+    @SerialName("stream_offset_frames") val streamOffsetFrames: Double? = null,
+    @SerialName("stream_offset_ms") val streamOffsetMs: Double? = null,
 )
 
 private val json = Json { ignoreUnknownKeys = true }

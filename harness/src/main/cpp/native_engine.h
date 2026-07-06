@@ -78,6 +78,20 @@ public:
     int32_t inputDeviceId() const { return mInputDeviceId; }
     int32_t actualSampleRate() const { return mActualSampleRate; }
 
+    // Hardware stream timestamps (test2-step2-plan.md item 10), latched once while both streams are
+    // RUNNING (read in stop() before requestStop). Each is a (framePosition, nanoTime) pair on a
+    // common CLOCK_MONOTONIC with DAC/ADC latency folded in, so the output/input frame relationship
+    // recovers the per-session start misalignment the two independently-started streams add on top of
+    // the acoustic round-trip. hasStreamTimestamps() is false if getTimestamp() failed/was
+    // unsupported (device-dependent -- the moto g(20) reported a wrong number, so a loopback stays
+    // the independent honesty check); the derived-offset arithmetic lives Kotlin-side so it is
+    // JVM-unit-testable.
+    bool hasStreamTimestamps() const { return mHasTimestamps.load(std::memory_order_relaxed); }
+    int64_t outputTimestampFrames() const { return mOutputTsFrames; }
+    int64_t outputTimestampNanos() const { return mOutputTsNanos; }
+    int64_t inputTimestampFrames() const { return mInputTsFrames; }
+    int64_t inputTimestampNanos() const { return mInputTsNanos; }
+
     // oboe::AudioStreamDataCallback
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *oboeStream, void *audioData,
                                           int32_t numFrames) override;
@@ -88,6 +102,11 @@ private:
     size_t ringPop(int16_t *dst, size_t maxCount);
 
     void drainLoop();
+
+    // Reads getTimestamp() on both streams (once, latched via mHasTimestamps). No-op unless both
+    // reads succeed, so a repeat stop() -- when the streams are no longer RUNNING and getTimestamp
+    // would fail -- can't clobber a good earlier read.
+    void readStreamTimestamps();
 
     static constexpr size_t kRingCapacity = 1u << 16;  // 65536 int16 (~1.3s mono at 48k)
     static constexpr size_t kRingMask = kRingCapacity - 1;
@@ -127,6 +146,13 @@ private:
 
     std::thread mDrainThread;
     std::atomic<bool> mDrainRunning{false};
+
+    // Latched hardware timestamps (see hasStreamTimestamps() / readStreamTimestamps()).
+    int64_t mOutputTsFrames = -1;
+    int64_t mOutputTsNanos = -1;
+    int64_t mInputTsFrames = -1;
+    int64_t mInputTsNanos = -1;
+    std::atomic<bool> mHasTimestamps{false};
 };
 
 }  // namespace overdub

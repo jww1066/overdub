@@ -468,15 +468,44 @@ In rough dependency order, picking up from "Implementation status" above:
 10. **Log per-stream hardware timestamps and decompose the offset spread (Test 1a, pulled forward).**
     The 61-151 ms spread is a *harness measurement artifact* -- each cell is an independently-started
     output+input stream pair, so the offset carries a per-session start misalignment the product
-    (one continuous full-duplex session, self-measured) does not have. Add `getTimestamp()` reads for
-    both streams to `FullDuplexEngine` after they reach RUNNING, log the derived stream offset
-    (frames + ns) into a new `ConditionMetadata` field, re-capture a few cells, and offline subtract
-    it from the GCC-PHAT offset. Residual collapsing to a constant confirms jitter (benign,
-    removable); staying wide means real alignment error. **Needs the device but NOT the loopback rig**
-    (the rig later confirms the reported timestamps aren't lying -- the moto g(20) case). This is
-    exactly Test 1a's device-agnostic mechanism, so building it here also de-risks the design's
-    headphone-monitoring / cross-device hedge. Code + offline comparison script can be written and
-    unit-tested now; on-device verification is device-gated.
+    (one continuous full-duplex session, self-measured) does not have.
+    - ~~**Code + offline comparison script + on-device plumbing check**~~ -- **done; the
+      residual-decomposition *study* (multiple captures) still to run.** `FullDuplexEngine::readStreamTimestamps()`
+      reads `getTimestamp(CLOCK_MONOTONIC)` on both streams once while RUNNING (called at the top of
+      `stop()` before `requestStop`, latched via `mHasTimestamps` so a repeat `stop()` can't clobber a
+      good read); the four raw `(framePosition, nanoTime)` values cross the JNI bridge
+      (`nativeHasStreamTimestamps` + four getters). The derived-offset arithmetic is pure Kotlin
+      (`timestamp/StreamOffset.kt`, `computeStreamOffset` = `(p_in - p_out) + (t_out - t_in)*fs/1e9`,
+      in GCC-PHAT's mic-lags-positive convention) so it is JVM-unit-tested (`StreamOffsetTest`), not
+      buried in C++. `CaptureEngine` reads the timestamps after `nativeStop`, logs the offset, and
+      writes six new nullable `ConditionMetadata` fields (`output/input_timestamp_frames/nanos`,
+      `stream_offset_frames/ms`) -- nullable together so a device where `getTimestamp` fails omits
+      them rather than logging a fake. Offline: `analysis/scripts/decompose_offset.py` (lib
+      `overdub_analysis/offset_decompose.py`, pytest `test_offset_decompose.py`) joins the sweep CSV
+      with the sidecars' `stream_offset_ms` and reports `residual = gcc_phat_offset - stream_offset`
+      plus the residual-vs-raw std collapse. Verified against the existing 36-cell data it correctly
+      reports the raw 97.2 +/- 17.5 ms spread and "0 cells carry a stream offset yet" (expected until
+      a re-capture). `gradlew test assembleDebug` green (both ABIs link -- the Oboe `getTimestamp`
+      signature is confirmed by the native compile), analysis suite 30/30. **On-device plumbing
+      verified on the Pixel 10 (2026-07-05):** one baseline capture (`am instrument`, rms=5892 / 0
+      XRun / builtin_speaker) came back with `getTimestamp` succeeding on *both* streams -- not a
+      moto-g(20)-style failure -- and the sidecar carried all six fields, e.g. out=(741024 frames,
+      124227789234491 ns) in=(734160 frames, 124227771172356 ns) -> stream_offset -5997.0 frames
+      (-124.94 ms), matching `computeStreamOffset` exactly. So the timestamps are *available and
+      self-consistent* on this device; whether they *explain the spread* is the study below.
+    - ~~**On-device residual-decomposition study (device-gated, NOT the loopback rig)**~~ -- **done
+      (2026-07-05; full write-up in `test2-sweep-results.md` "Stream-timestamp decomposition
+      confirmed").** Clean isolation with no repositioning: `repeat_sweep_cell.sh
+      conversational_armslength_faceup_none 8` captured the *same* cell 9x with the phone untouched, so
+      the acoustic path is constant and any offset variation is per-session start-jitter. Even unmoved,
+      the band-limited GCC-PHAT offset swung 73-119 ms (std 13.4 ms); subtracting the `getTimestamp`
+      `stream_offset_ms` collapsed the std to 5.5 ms (59% reduction), confirming most of the run-to-run
+      spread is benign harness jitter that the timestamps track and remove. A fixed ~201 ms residual
+      *constant* remains (a measurement-basis offset -- WAV sample 0 != input frame 0 once the maxed
+      input buffer / startup drain gap fold in), which is calibration, not jitter, and is the loopback
+      rig's job to pin down honestly (the moto g(20) case). This is exactly Test 1a's device-agnostic
+      mechanism, so exercising it here also de-risks the design's headphone-monitoring / cross-device
+      hedge. Still open: repeat across *varied* physical cells, and the loopback honesty check.
 8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the
    gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
    gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md
