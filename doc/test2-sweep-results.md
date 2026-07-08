@@ -120,9 +120,19 @@ RMS is int16 scale.
    vs 5.0x). This is the CLAUDE.md gain-ratio probe result: residual AGC / speaker-amp
    nonlinearity is flattening the volume-axis SNR gradient despite the `voice_recognition` input
    preset. Compression is worse face-down than face-up, so it has two superimposed components --
-   a device-level one and a coupling-path one. A dedicated AGC-probe script (to be written in
-   `analysis/scripts/`) should decompose these properly by subtracting the noise floor in the
-   power domain before fitting RMS vs gain per orientation.
+   a device-level one and a coupling-path one. **Decomposed (2026-07-08,
+   `analysis/scripts/probe_agc.py` -- item 8):** fitting log(floor-corrected RMS) vs log(gain)
+   per arrangement gives a compression exponent (1.0 = linear) of **0.850 +/- 0.011 face-up**
+   (the device-level component, strikingly consistent across all 6 face-up arrangements) and
+   **0.702 +/- 0.025 face-down**, so the **coupling-path component is ~0.15 of exponent** on top
+   of the device-level ~0.15 shortfall. Two by-products: (a) the compression is NOT a
+   noise-floor artifact -- the per-capture floor (percentile of 50 ms frame power) sits 30-40 dB
+   below the signal, and slopes are identical at the 1st vs 5th floor percentile, so the raw
+   RMS ratios were already the real compression; (b) the exponents are distance- and
+   obstruction-independent, corroborating the two-floors reading (finding 6). What the offline
+   decomposition cannot split: input-side AGC vs output-side speaker-amp nonlinearity -- that
+   needs the on-device two-gain tone probe (prototype-plan.md "Cross-device generalization").
+   Per-arrangement CSV: `sweep_data/agc_probe_results.csv` (gitignored, regeneratable).
 
 3. **Face-down coupling is mechanically nonlinear.** The face-down/face-up ratio falls with
    volume, and within-arrangement gain ratios compress harder face-down (loud/quiet 58-61% of
@@ -602,9 +612,13 @@ judgment.
   Pure Python; no device time. (Note: must be re-gated per the item above — judge against the
   click, not PSR — so it should run against the click-bearing re-capture sweep, not the alias-era
   click-less captures.)
-- Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
+- ~~Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
-  domain, fit RMS vs gain, separate device-level from coupling-path compression).
+  domain, fit RMS vs gain, separate device-level from coupling-path compression)~~ -- **done
+  (2026-07-08; see the decomposition appended to finding 2 above).** Device-level exponent
+  0.850 +/- 0.011 (face-up), coupling path adds ~0.15 more (face-down 0.702 +/- 0.025); not a
+  floor artifact. The input-AGC-vs-output-amp split remains for the on-device two-gain tone
+  probe before any *non-Pixel* sweep is trusted.
 - ~~Add a `reflector_geometry` (or free-text `setup_notes`) field to `ConditionMetadata` so the
   class of silent contamination that forced the redo (desk-below vs wall geometry) cannot recur
   on a future sweep~~ -- **done (2026-07-08; test2-step2-plan.md item 9).** Nullable

@@ -532,10 +532,14 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
       rig's job to pin down honestly (the moto g(20) case). This is exactly Test 1a's device-agnostic
       mechanism, so exercising it here also de-risks the design's headphone-monitoring / cross-device
       hedge. Still open: repeat across *varied* physical cells, and the loopback honesty check.
-8. **Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`) that decomposes the
-   gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
-   gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md
-   finding 2.
+8. ~~**Write the dedicated AGC-probe script** (`analysis/scripts/probe_agc.py`)~~ -- **done
+   (2026-07-08).** Fits log(floor-corrected RMS) vs log(gain) per arrangement over the existing
+   36 captures: device-level compression exponent **0.850 +/- 0.011** (face-up isolates it),
+   coupling-path adds **~0.15** (face-down 0.702 +/- 0.025); floor-robust (identical slopes at
+   1st vs 5th floor percentile -- the floor sits 30-40 dB under the signal, so the compression
+   is real, not floor dilution). See test2-sweep-results.md finding 2 for the full read. The
+   input-AGC vs output-amp split still needs the on-device two-gain tone probe
+   (prototype-plan.md) before trusting a non-Pixel sweep.
 9. ~~**Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`**~~ — **done
    (2026-07-08, code side).** Nullable `reflector_geometry` flows instrumentation-arg →
    `ConditionSweepTest` → `CaptureEngine.runCapture` → sidecar; null means *unknown* (honest for
