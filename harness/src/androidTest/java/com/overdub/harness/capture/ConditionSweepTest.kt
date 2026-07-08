@@ -146,6 +146,50 @@ class ConditionSweepTest {
     }
 
     @Test
+    fun recordVocalTake() {
+        // Item-12 record-only mode: identical full-duplex pipeline and input chain as a sweep cell
+        // (same mic, same VoiceRecognition preset -- the point, so the take's RMS is in the same
+        // measurement basis as the bleed RMS it will be ratio'd against), but playback gain 0.0, so
+        // the speaker emits silence and the take carries ZERO reference bleed. The performer monitors
+        // the reference on headphones from a DIFFERENT device and performs close-mic into this one
+        // for the full capture (~16s). Output goes to files/vocal, not files/sweep -- these are not
+        // sweep data and must never be swept up by a sweep-dir pull/analysis.
+        val vocalDir = File(context.getExternalFilesDir(null), "vocal").apply { mkdirs() }
+        Log.i(TAG, "=== vocal take: recording ~16s, playback gain 0.0 (record-only) -- PERFORM NOW ===")
+        Log.i(TAG, "output dir (adb pull this): ${vocalDir.absolutePath}")
+
+        val result = engine.runCapture(VOCAL_TAKE_SPEC, vocalDir)
+
+        Log.i(
+            TAG,
+            "RESULT ${VOCAL_TAKE_SPEC.captureId}: rms=%.1f sanity=%s xrun=%d dropped=%d route=%s rate=%dHz file=%s"
+                .format(
+                    result.rms,
+                    if (result.sanityGatePassed) "PASS" else "FAIL",
+                    result.xrunCount,
+                    result.droppedFrameCount,
+                    result.outputRoute,
+                    result.sampleRate,
+                    result.wavFile.name,
+                ),
+        )
+
+        assertEquals("XRun during the take invalidates it — retry", 0, result.xrunCount)
+        assertEquals("ring overflow dropped samples — retry", 0L, result.droppedFrameCount)
+        assertTrue(
+            "output route was ${result.outputRoute}, not the built-in speaker — disconnect any headset " +
+                "from THIS phone (monitor on the other device) and retry",
+            result.routeIsBuiltinSpeaker,
+        )
+        // Unlike a sweep edge cell, a silent vocal take carries no finding — it just means the
+        // performer wasn't performing. Hard-fail so the operator retries.
+        assertTrue(
+            "vocal take was silent (rms=${result.rms}) — perform during the capture and retry",
+            result.sanityGatePassed,
+        )
+    }
+
+    @Test
     fun listConditionIds() {
         // Operator convenience: dump all 36 valid `-e condition <id>` values to logcat.
         Log.i(TAG, "=== 36 valid condition ids for -e condition <id> ===")

@@ -54,6 +54,7 @@ analysis/sweep_data/
 analysis/timestamp_study/
 analysis/click_check/
 analysis/recapture_session_a/
+analysis/vocal_take/
 
 # OS / editor cruft
 .DS_Store

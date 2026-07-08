@@ -643,3 +643,37 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     Re-measure the step-1 synthetic SNR floor with the band-limited pipeline + real beatbox
     reference at the same time (the click-train −30dB floor did not transfer). Pure Python +
     existing captures; no device time.
+
+    **The close-mic take must be recorded on the same phone** (same mic, same `VoiceRecognition`
+    preset) so its RMS is in the *same measurement basis* as the bleed RMS it gets ratio'd against
+    — a laptop/USB take would give an uncalibrated ratio (the in-basis lesson, applied to levels).
+    A stock recorder app is wrong: it uses the default input preset with AGC/NS, a *different*
+    effective chain. The harness can't record it as-is either — every capture path plays the
+    reference through the speaker, contaminating the take with real bleed. **Built (2026-07-08):
+    record-only vocal-take mode** — `CaptureSpec` decouples what a run varies (id/gain/arrangement)
+    from the 36-cell matrix so a non-matrix run stays honest instead of masquerading as a sweep
+    cell; `VOCAL_TAKE_SPEC` (playback gain 0.0, `captureId "vocal_take"`) drives the *exact* sweep
+    input chain with the speaker emitting silence; `ConditionSweepTest#recordVocalTake` + the
+    `run_vocal_take.sh` operator wrapper write to `files/vocal` (not `files/sweep`). Tier-1
+    `CaptureSpecTest`, gradle green, on-device plumbing verified (gain-0 capture RMS 23.7 = bare
+    room floor vs. 1652 at the min-bleed sweep cell → the take carries zero reference bleed; the
+    input chain is byte-for-byte the sweep chain).
+
+    **Take 1 recorded + vetted (2026-07-08).** `analysis/scripts/vet_vocal_take.py` gates a take
+    on format / no-clip / continuously-active / no-reference-leak, and prints the vocal-to-bleed
+    ratio. The leak check has two layers: (i) the calibration click must not be detectable in the
+    take (matched filter), and (ii) a novel leak-vs-performance discriminator
+    (`overdub_analysis/leak_detect.py`, 4 pytest cases) — a whole-take GCC-PHAT peak against the
+    reference is ambiguous between a genuine headphone leak and an in-time performance, so it
+    classifies by per-segment lag stability (a leak is machine-stable to <1 ms across a 16 s take;
+    human timing jitters by tens of ms; a windowed argmax at the boundary is not a peak).
+    Take 1: format OK, no clip (peak −12.3 dBFS), active fraction 0.97, click not detected, whole-
+    take peak 10.9 dB at +115 ms classified **not a leak** (all 4 segments edge-pinned — no
+    machine-stable interior peak) → verdict OK. Ratio **−19.6 dB** (active RMS 437 vs baseline
+    bleed 4171), but the performer noted it was softer than usual, so treat as a floor not the pin.
+    **Protocol learning:** the performer monitored `boots.wav` (no click), which voided the click
+    gate — take 1's "no leak" rests on the lag-stability discriminator alone. `run_vocal_take.sh`
+    now instructs monitoring the **click-bearing** `reference_track.wav` so both layers are live.
+    Still to do: 2–3 more takes at realistic loudness for independent slices + a trustworthy ratio
+    pin, then the injection/mixing script itself (pure Python, against the click-bearing Session A
+    captures, judged with the click gate not PSR).

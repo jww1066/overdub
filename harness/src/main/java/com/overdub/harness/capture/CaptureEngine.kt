@@ -43,7 +43,7 @@ private const val PLAYBACK_TIMEOUT_MARGIN_MS = 2000L
  * rather than silently feeding it into analysis.
  */
 data class CaptureResult(
-    val condition: Condition,
+    val spec: CaptureSpec,
     val wavFile: File,
     val jsonFile: File,
     val capturedSampleCount: Int,
@@ -120,6 +120,19 @@ class CaptureEngine(private val context: Context) {
         outputDir: File,
         reference: com.overdub.harness.wav.WavAudio = loadReferenceTrack(),
         reflectorGeometry: String? = null,
+    ): CaptureResult = runCapture(condition.toCaptureSpec(), outputDir, reference, reflectorGeometry)
+
+    /**
+     * Spec-driven variant: same full-duplex pipeline, but identity/gain/arrangement come from an
+     * arbitrary [CaptureSpec] rather than a matrix cell — this is how the record-only vocal-take
+     * mode ([VOCAL_TAKE_SPEC], playback gain 0.0) reuses the exact sweep input chain (same mic,
+     * same `VoiceRecognition` preset, same stream setup) without pretending to be a sweep cell.
+     */
+    fun runCapture(
+        spec: CaptureSpec,
+        outputDir: File,
+        reference: com.overdub.harness.wav.WavAudio = loadReferenceTrack(),
+        reflectorGeometry: String? = null,
     ): CaptureResult {
         outputDir.mkdirs()
 
@@ -139,7 +152,7 @@ class CaptureEngine(private val context: Context) {
         val speakerId = builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, output = true)
         val micId = builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_MIC, output = false)
 
-        val gain = condition.volume.gainFraction.toFloat()
+        val gain = spec.playbackGain.toFloat()
 
         val openResult = NativeBridge.nativeOpen(
             sampleRate,
@@ -208,24 +221,24 @@ class CaptureEngine(private val context: Context) {
             val sanityPassed = rmsValue > RMS_SANITY_FLOOR
             // Logcat is the relied-upon sanity channel (works regardless of phone orientation).
             if (sanityPassed) {
-                Log.i(TAG, "SANITY PASS ${condition.conditionId}: rms=%.1f samples=%d".format(rmsValue, captured.size))
+                Log.i(TAG, "SANITY PASS ${spec.captureId}: rms=%.1f samples=%d".format(rmsValue, captured.size))
             } else {
-                Log.w(TAG, "SANITY FAIL ${condition.conditionId}: rms=%.1f below floor $RMS_SANITY_FLOOR (bleed may not have reached the mic)".format(rmsValue))
+                Log.w(TAG, "SANITY FAIL ${spec.captureId}: rms=%.1f below floor $RMS_SANITY_FLOOR (signal may not have reached the mic)".format(rmsValue))
             }
 
             val timestamp = System.currentTimeMillis()
-            val baseName = "${condition.conditionId}_$timestamp"
+            val baseName = "${spec.captureId}_$timestamp"
             val wavFile = File(outputDir, "$baseName.wav")
             val jsonFile = File(outputDir, "$baseName.json")
 
             wavFile.writeBytes(writeWav(captured, WavFormat(actualRate, 16, reference.format.channelCount)))
 
             val metadata = ConditionMetadata(
-                conditionId = condition.conditionId,
-                playbackVolume = condition.volume.gainFraction,
-                distanceCm = condition.distance.approxCm,
-                orientation = condition.orientation.label,
-                obstruction = condition.obstruction.label,
+                conditionId = spec.captureId,
+                playbackVolume = spec.playbackGain,
+                distanceCm = spec.distanceCm,
+                orientation = spec.orientation,
+                obstruction = spec.obstruction,
                 outputRoute = routeLabel,
                 inputPreset = "voice_recognition",
                 sampleRate = actualRate,
@@ -244,7 +257,7 @@ class CaptureEngine(private val context: Context) {
             jsonFile.writeText(metadata.toJson())
 
             return CaptureResult(
-                condition = condition,
+                spec = spec,
                 wavFile = wavFile,
                 jsonFile = jsonFile,
                 capturedSampleCount = captured.size,
