@@ -674,6 +674,25 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     **Protocol learning:** the performer monitored `boots.wav` (no click), which voided the click
     gate — take 1's "no leak" rests on the lag-stability discriminator alone. `run_vocal_take.sh`
     now instructs monitoring the **click-bearing** `reference_track.wav` so both layers are live.
-    Still to do: 2–3 more takes at realistic loudness for independent slices + a trustworthy ratio
-    pin, then the injection/mixing script itself (pure Python, against the click-bearing Session A
-    captures, judged with the click gate not PSR).
+
+    **Takes 2–3 recorded + vetted (2026-07-08, corrected protocol, realistic loudness): 3/3 OK.**
+    Both leak layers now live and agreeing (click not detected *and* segment-discriminator clean):
+
+    | take | overall RMS | active RMS | peak dBFS | ratio vs baseline bleed | note |
+    |---|---|---|---|---|---|
+    | 1 (`...4176505`) | 429 | 437 | −12.3 | −19.6 dB | soft; monitored boots.wav (click gate voided) |
+    | 2 (`...5380726`) | 983 | 1021 | −5.0 | **−12.2 dB** | realistic; both leak layers live |
+    | 3 (`...5483495`) | 970 | 1018 | −9.7 | **−12.2 dB** | realistic; both leak layers live |
+
+    **Ratio pin: −12.2 dB** (takes 2 & 3 agree exactly; broadband, baseline cell). Notable: even at
+    realistic close-mic loudness the vocal lands *below* the baseline bleed, the opposite of the
+    "loud vocal" assumption above — the in-band ratio (vocal energy concentrated in 500–4000 Hz)
+    may be more favorable and is what the injection script should mix at, not this broadband number.
+    All three takes show the same leak-discriminator signature (whole-take peak 10–16 dB, all
+    segments edge-pinned) — the rap is in *tempo* with the beat but not *waveform*-similar to the
+    beatbox, so the peak is the performance, not a leak. Data in `analysis/vocal_take/` (gitignored).
+    **Remaining (pure Python, no device): the injection/mixing script** — mix a take into the
+    click-bearing Session A captures at controlled ratios (sweep around the −12.2 dB pin, in-band),
+    judge with the click gate (`|gcc − click| ≤ 2 ms`, not PSR), and report where the vocal starts
+    pulling the alignment. Re-measure the step-1 synthetic SNR floor with the band-limited pipeline
+    + real beatbox reference at the same time.
