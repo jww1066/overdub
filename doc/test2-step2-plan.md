@@ -538,6 +538,9 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
    finding 2.
 9. **Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`** so the
    desk-vs-wall geometry contamination that forced the redo cannot recur on a future sweep.
+   **Sequencing note (2026-07-08): do this before item 11's 36-cell re-capture** — the re-capture
+   is unavoidable anyway (the old WAVs carry no click), so it should be the first sweep whose
+   sidecars record the geometry.
 11. **Embed an in-basis calibration click and re-judge the ±2ms bar against it (added 2026-07-08).**
     Prepend a short high-SNR click (or click pair) at a known sample position in the bundled
     reference track, detect its onset in each capture WAV (trivially accurate at high SNR, and
@@ -577,10 +580,14 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     cross-check" for the full analysis and what survives. A reference self-similarity mapper,
     `analysis/scripts/check_reference_periodicity.py`, was added (plain band-limited
     autocorrelation — PHAT-of-self is a perfect impulse and hides the beat-period peak a
-    correlator can alias onto). Remaining: re-run the full 36-cell sweep against the click-bearing
-    reference and
-    re-gate on `|gcc_phat_offset - click_offset| ≤ 2ms` (admitting negative offsets / or trim to
-    beatbox-only), not PSR + a positivity window.
+    correlator can alias onto). Remaining, in order: **(a)** decide the alias-rejection remedy on
+    the existing `analysis/click_check/` capture (pure Python, no device) — does a
+    negative-admitting lag window let the correlator find the true -81 ms peak, or does the
+    beat-period alias peak genuinely dominate, forcing the trim-to-beatbox re-basis? — and build
+    the click-gated sweep pipeline around whichever wins; **(b)** land item 9's
+    `reflector_geometry` field so the re-capture records it; **(c)** re-run the full 36-cell sweep
+    against the click-bearing reference and re-gate on
+    `|gcc_phat_offset - click_offset| ≤ 2ms`, not PSR + a positivity window.
 12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
     Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
     ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,

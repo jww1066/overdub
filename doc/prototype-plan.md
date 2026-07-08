@@ -329,9 +329,10 @@ reference asset and re-capturing at least the baseline cell — the existing 36 
 chirp at sample 9600), and a baseline cell was re-captured on the Pixel 10. The cross-check
 immediately paid off — it exposed that the prior +97ms family are +187ms beat-period aliases, not
 alignments (see the implementation-status resolution above and `test2-sweep-results.md`).
-Remaining: re-run the full 36-cell sweep against the click-bearing reference and re-gate on
-`|gcc_phat_offset - click_offset| ≤ 2ms` (admitting negative offsets), not PSR + a positivity
-window.
+Remaining: first decide the alias-rejection remedy (negative-admitting lag window vs.
+trim-to-beatbox re-basis) on the existing click-bearing capture — pure Python, no device; see
+`test2-step2-plan.md` item 11 — then re-run the full 36-cell sweep against the click-bearing
+reference and re-gate on `|gcc_phat_offset - click_offset| ≤ 2ms`, not PSR + a positivity window.
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 

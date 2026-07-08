@@ -532,19 +532,23 @@ the `calibration_click` library are committed.
   precedes input-stream frame 0). Either that, or re-basis by trimming to beatbox-only content
   (detect click, trim both sides equally — README) so the positive-round-trip prior holds. Then
   re-run the 36-cell sweep against the click-bearing reference to get real per-cell offsets.
+  **Sequencing (2026-07-08): decide between the two remedies on the existing click-bearing
+  capture BEFORE burning an operator session on the re-capture.** `analysis/click_check/` already
+  holds one baseline capture with known truth (-80.98 ms). The open question the cross-check
+  leaves unanswered: with a lag window that admits negative offsets, does the band-limited
+  GCC-PHAT argmax land on the true -81 ms peak, or is the +107 ms beat-period alias peak
+  *genuinely larger* in the correlation? If the alias dominates even with the window pointed
+  correctly, only the trim/re-basis remedy works and the sweep pipeline must be built around it.
+  One pure-Python experiment on data already on disk decides the pipeline design; also land the
+  `reflector_geometry` metadata field (below) before the re-capture so the new sweep records it.
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
-  Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed ratios
+  Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
   production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis band. Pin
   the realistic ratio *before* running; the baseline cell at that ratio must still clear the bar.
-  Pure Python + existing captures; no device time. (Note: must be re-gated per the item above —
-  judge against the click, not PSR.)
-- **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
-  Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed ratios
-  and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
-  production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis band. Pin
-  the realistic ratio *before* running; the baseline cell at that ratio must still clear the bar.
-  Pure Python + existing captures; no device time.
+  Pure Python; no device time. (Note: must be re-gated per the item above — judge against the
+  click, not PSR — so it should run against the click-bearing re-capture sweep, not the alias-era
+  click-less captures.)
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).
