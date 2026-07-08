@@ -41,7 +41,19 @@ first-frame latency) can pass by luck of alphabetical test order — run it cold
 (b) a green suite on one reference-grade device is a favorable-case existence proof, not a
 population guarantee — split "the criteria generalize" from "this hardware clears them," and probe
 whether the OEM honors the requested low-processing `InputPreset`; (c) when a sweep axis is defined
-relative to a physical referent, record the *referent/geometry* in metadata, not just the axis value.
+relative to a physical referent, record the *referent/geometry* in metadata, not just the axis value;
+(d) **a pass/fail gate derived from an estimator's own output cannot catch failures that estimator's
+assumptions cause — validate with an independent instrument.** A GCC-PHAT alignment "passed" PSR ≥ 6 dB
+and a plausible-offset lag window for a whole 36-cell sweep; an independent matched-filter calibration
+click then showed every offset was a ~187 ms beat-period *alias* of the true (negative) offset, with a
+sharp, in-window, high-PSR peak. The estimator's own quality metric (PSR) and a plausibility window
+built on a sign prior ("a round-trip is positive") both blessed the alias — the prior was wrong for the
+measurement basis (the captured WAV's sample 0 precedes input-frame 0, so the true offset is negative).
+Two general rules: **establish the measurement basis's sign before constraining a search to it**, and
+**judge an estimator against an instrument that does not share its failure mode** (here, an aperiodic
+chirp has no beat-period ambiguity, so it sees the alias the correlator can't). Worked case:
+`doc/guides/offline-dsp.md` (GCC-PHAT lessons) and `doc/test2-sweep-results.md` "Calibration click
+cross-check."
 
 ## Diagnose before re-implementing
 
@@ -98,6 +110,18 @@ loudness/headroom, the full-duplex startup-XRun fix, focus-ducking artifacts) ar
   test/placeholder assets — they're gitignored. If a component needs a bundled audio asset (e.g.
   the Test 2 harness's reference track), check in a script that generates it locally instead of the
   binary itself, with a README noting it must be (re)generated after a fresh checkout.
+
+## Shell & Gradle invocation (Windows / Git Bash)
+
+- The working shell is Git Bash (POSIX), and the working directory **persists between commands**
+  in a session — a `./gradlew: No such file or directory` almost always means "wrong cwd" (e.g.
+  still in `analysis/` from an earlier command), not a missing wrapper. Check `pwd` before
+  re-diagnosing.
+- Run Gradle as `sh ./gradlew <tasks>` from the repo root. Do **not** reach for
+  `cmd //c gradlew.bat`: cmd spawned from a compound Git Bash command doesn't reliably inherit
+  the intended working directory and fails with a misleading `'gradlew.bat' is not recognized` —
+  a second wrong-cwd error wearing a different costume. Reserve `cmd //c` for genuinely
+  Windows-only tools; Gradle ships a POSIX wrapper.
 
 ## Workflow for staged/incremental work
 

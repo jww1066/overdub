@@ -52,6 +52,7 @@ env/
 analysis/sweep_discarded*/
 analysis/sweep_data/
 analysis/timestamp_study/
+analysis/click_check/
 
 # OS / editor cruft
 .DS_Store

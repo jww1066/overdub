@@ -73,6 +73,22 @@ Python) so dependency versions stay pinned.
   Gate alignment on PSR *and* a plausible-lag constraint (restrict argmax — and the sidelobe
   search — to e.g. 0-300 ms via `gcc_phat`'s `lag_window`), never PSR alone; constraining it turned
   the -15 s alias into a +65 ms recovery and left offsets at 97.2 +/- 17.5 ms.
+  **Sharpened 2026-07-08 (calibration-click cross-check, `test2-sweep-results.md`): PSR *and* a
+  plausible-lag window are STILL not enough.** The +97.2 ms "population mean" and the whole
+  +61..+151 ms family turned out to be **+187 ms beat-period aliases** of *negative* true offsets
+  (the baseline cell's true offset is -80.98 ms by matched-filter click detection; GCC-PHAT
+  reported +107.12 ms at PSR 12.1 dB "confident" — ~188 ms off, essentially one reference beat
+  period). The beat-period alias sat *inside* the (0, 300 ms) plausible window with a high PSR, so
+  both gates blessed it. The positivity prior ("a round-trip is positive") was wrong *for the
+  harness's measurement basis* (the captured WAV's sample 0 precedes input-stream frame 0, so the
+  true offset is negative), which pointed the window the wrong way — and even a signed window would
+  not have rejected an alias at *any* plausible magnitude. **The only gate that caught it was an
+  independent aperiodic reference signal** (a prepended chirp, detected by matched filter — no
+  beat-period ambiguity). Lesson upgraded: against a *rhythmic* reference, GCC-PHAT can alias by a
+  whole beat with high PSR and an in-window offset; validate with an aperiodic ground-truth signal,
+  not with PSR + a lag window. `analysis/scripts/check_reference_periodicity.py` maps a reference's
+  self-similarity peaks (plain autocorrelation — PHAT-of-self is always a perfect impulse and hides
+  the periodicity) so the alias risk is visible before trusting any correlation.
 - **"Measure, don't assume" catch on the fix:** the intuition that bandpassing *widens* the
   correlation main lobe (half-width ~ 1/(2*bandwidth) ~= 7 samples at 500-4000 Hz / 48 kHz), so a
   2-sample `psr_exclusion` would start measuring the filter's lobe shape instead of the true peak,
@@ -94,6 +110,12 @@ Python) so dependency versions stay pinned.
   confident-count; a single edge cell below the PSR floor with a *band-robust* offset is a documented
   UX-constraint condition, not an alignment failure. (Diagnose the cell first --
   `diagnose_gcc_phat.py --capture <that_cell>.wav` -- before touching the global band.)
+  **Caveat added 2026-07-08: "the offset is the robust quantity" inverts when the offset is an
+  alias.** The band-robustness of the +87-/+97-/+107 ms family was robustness *of the beat-period
+  alias*, not of the true alignment — the offset was identical across bands because the alias is a
+  real reference feature, and that very robustness made the alias more convincing. "Gate on the
+  offset, not the PSR" is only safe once the offset has been *validated* against an independent
+  ground truth (the calibration click); until then a band-robust offset can be a band-robust alias.
 - **A full-band GCC-PHAT failure has two opposite spectral causes; the diagnostic tells them apart.**
   The population failure was HF *rolloff* (speaker rolls off signal, HF is mic-noise). But the lone
   loud+facedown edge cell was the inverse -- HF *excess*: driven hard into the resting surface with

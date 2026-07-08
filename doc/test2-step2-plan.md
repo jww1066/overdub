@@ -487,7 +487,14 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
 10. **Log per-stream hardware timestamps and decompose the offset spread (Test 1a, pulled forward).**
     The 61-151 ms spread is a *harness measurement artifact* -- each cell is an independently-started
     output+input stream pair, so the offset carries a per-session start misalignment the product
-    (one continuous full-duplex session, self-measured) does not have.
+    (one continuous full-duplex session, self-measured) does not have. **Re-decomposed 2026-07-08
+    (calibration-click cross-check, `test2-sweep-results.md`): the +61..+151 ms family are +187 ms
+    beat-period aliases of negative true offsets, not the spread of a real round-trip.** The
+    start-jitter *std* conclusion below is unaffected (an alias at a near-fixed offset from the
+    truth has the same variance as the truth), but the *mean* and the "harness artifact" framing
+    were incomplete: the spread is harness start-jitter **plus** a +187 ms correlator alias, and
+    the per-session misalignment is around the *alias*, not the true peak. The cross-check is the
+    instrument that separated them.
     - ~~**Code + offline comparison script + on-device plumbing check**~~ -- **done; the
       residual-decomposition *study* (multiple captures) still to run.** `FullDuplexEngine::readStreamTimestamps()`
       reads `getTimestamp(CLOCK_MONOTONIC)` on both streams once while RUNNING (called at the top of
@@ -542,6 +549,38 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     now needs. Requires regenerating the bundled asset and re-capturing at least the baseline cell
     — the existing 36 WAVs carry no click. The loopback rig's remaining job is the independent
     `getTimestamp` honesty check.
+    **Status (2026-07-08): generation half done; re-capture pending device.** The click is a 20ms
+    Hann-windowed 500–4000 Hz linear chirp inside a 1.000s lead-in (0.200s silence + chirp +
+    0.780s silence) — confined to the empirically usable band so the acoustic path passes it,
+    detected by a polarity-insensitive matched filter (pulse compression, so the peak is sharp
+    and cycle-unambiguous). `overdub_analysis/calibration_click.py` (template + prepend +
+    `detect_click`; the single source of truth for the constants) is unit-tested — 8 pytest cases
+    covering the clean path, a band-limited + polarity-inverted + noisy path, no-click quality
+    gating, and search-window bounds; analysis suite 38/38 — and
+    `analysis/scripts/prepend_calibration_click.py` regenerates the bundled asset with a
+    round-trip self-check (re-detects its own click before declaring success; measured onset
+    sample 9600 exactly, quality 20.5 dB). The asset is rebuilt (16.25s: click onset at sample
+    9600, beatbox content starts at sample 48000; see `reference_track_README.md`, including the
+    pairing rule that old click-less captures must be analyzed against a click-less reference)
+    and `gradlew test assembleDebug` is green. ~~Still to do: reinstall both APKs and re-capture
+    the baseline cell (`repeat_sweep_cell.sh` batch — device work), then the detection-side sweep
+    integration that emits the click-derived ground truth per capture and the ±2ms /
+    quantization-decomposition verdicts.~~ **Done on-device 2026-07-08 (Pixel 10 connected):** both
+    APKs reinstalled, one baseline cell re-captured via `run_sweep_cell.sh` (rms=487.6, 0 XRun,
+    builtin_speaker, 16.25s), pulled to `analysis/click_check/`, and run through
+    `analysis/scripts/detect_calibration_click.py`. **The click survived the real speaker→mic path
+    and the cross-check immediately paid off** — it exposed that the band-limited GCC-PHAT offset
+    (+107.12 ms, "confident" PSR 12.1 dB) is a **+187 ms beat-period alias** of the true -80.98 ms
+    harness-basis offset (click-measured, quality 16.7 dB): a discrepancy of ~188 ms, essentially
+    one reference beat period. This overturns the prior +97 ms "population mean" and the whole
+    +61..+151 ms family as correct alignments; see `test2-sweep-results.md` "Calibration click
+    cross-check" for the full analysis and what survives. A reference self-similarity mapper,
+    `analysis/scripts/check_reference_periodicity.py`, was added (plain band-limited
+    autocorrelation — PHAT-of-self is a perfect impulse and hides the beat-period peak a
+    correlator can alias onto). Remaining: re-run the full 36-cell sweep against the click-bearing
+    reference and
+    re-gate on `|gcc_phat_offset - click_offset| ≤ 2ms` (admitting negative offsets / or trim to
+    beatbox-only), not PSR + a positivity window.
 12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
     Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
     ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,

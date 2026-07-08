@@ -78,7 +78,13 @@ results:
    raw number. Part of the 5.5ms is plausibly measurement quantization (band-limited-correlation
    resolution + `getTimestamp` granularity) rather than product-path error, but decomposing that
    split is now load-bearing, not a footnote — the in-basis calibration click (Test 2's
-   ground-truth correction below) is the instrument that decomposes it.
+   ground-truth correction below) is the instrument that decomposes it. **Update 2026-07-08:** the
+   click now exists and its first cross-check reframes this number — the timestamp study's offsets
+   were *alias* offsets (+187ms beat-period aliases), so the 5.5ms is jitter in the
+   alias-vs-true-peak relationship, not yet directly the product's per-hop error. Because the
+   alias sits at a near-fixed offset from the truth, the *std* (variance) carries over to the
+   true peak, so the budget arithmetic is not invalidated — but the real correlator-error number
+   must be re-measured against the click before this budget is trusted.
 
 ## Test 1 — Latency harness (continuous-buffer stability)
 
@@ -263,6 +269,19 @@ alignment. The lag-window and PSR-exclusion re-checks are since done (items 7a-7
 per the ground-truth correction under "Pass/fail threshold" below (2026-07-08), is an in-basis
 calibration click embedded in the reference track, *not* Test 1's loopback number as previously
 stated here. Results remain Pixel-10-specific (see "Cross-device generalization" below).
+**Resolved 2026-07-08 (calibration-click cross-check, `test2-sweep-results.md`): the +61..+151 ms
+family — including the +97 ms "population mean" and the edge cell's "band-robust" +87 ms — are
+~+187 ms beat-period *aliases* of negative true harness-basis offsets, not correct alignments. The
+"confident" PSR verdicts describe sharp alias peaks. The calibration click (matched filter,
+independent of the correlator) measured the true baseline offset at -80.98 ms; GCC-PHAT reported
++107.12 ms, ~188 ms off — essentially one reference beat period. So PSR ≥ 6 dB + a (0, 300 ms)
+positivity lag window is *not* a sufficient alignment gate: both bless the alias (the true offset
+is negative in the harness basis, so the "plausible positive" window pointed the wrong way, and
+the beat-period peak is a real sharp feature of the reference's autocorrelation). The honest gate
+is `|gcc_phat_offset - click_offset| ≤ 2 ms` per capture, with the lag window admitting negative
+offsets (or re-basis by trimming to beatbox-only content so the positivity prior holds). Test 2
+step 2 is **not passed**; the 36-cell sweep must be re-run against the click-bearing reference and
+re-gated. See `test2-sweep-results.md` "Calibration click cross-check."**
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
@@ -292,7 +311,9 @@ two independent reasons:
   harness-specific constant (~201ms on the Pixel 10 — the captured WAV's sample 0 is not
   input-stream frame 0 once the input-buffer sizing and startup drain gap fold in; see
   `test2-sweep-results.md`). A latency measured by another tool (OboeTester) in its own basis
-  cannot be compared at ±2ms against an offset measured in the harness's basis.
+  cannot be compared at ±2ms against an offset measured in the harness's basis. (Resolved
+  2026-07-08: the ~201ms is itself ~14-15ms genuine basis residual + ~187ms correlator *alias*,
+  not one calibration constant — see the cross-check.)
 
 The ground truth must be **in-basis and on-route**: embed a short high-SNR calibration click at a
 known sample position in the bundled reference track, detect its onset in the captured WAV (onset
@@ -301,8 +322,16 @@ judge the GCC-PHAT-recovered offset against that click-derived offset *in the sa
 also decomposes the timestamp study's 5.5ms residual std into correlator error vs. measurement
 quantization (see "Quantitative thresholds," point 4). Test 1's loopback rig keeps a narrower,
 still-necessary role: independently verifying that `getTimestamp` values are honest (the
-moto g(20) failure class) on the route it actually measures. Requires regenerating the bundled
-reference asset and re-capturing at least the baseline cell — the existing 36 WAVs carry no click.
+moto g(20) failure class) on the route it actually measures. ~~Requires regenerating the bundled
+reference asset and re-capturing at least the baseline cell — the existing 36 WAVs carry no click.~~
+**Done 2026-07-08:** the click library + prepend/detect scripts + 8 unit tests are committed
+(`analysis/src/overdub_analysis/calibration_click.py` etc.), the asset is regenerated (16.25s,
+chirp at sample 9600), and a baseline cell was re-captured on the Pixel 10. The cross-check
+immediately paid off — it exposed that the prior +97ms family are +187ms beat-period aliases, not
+alignments (see the implementation-status resolution above and `test2-sweep-results.md`).
+Remaining: re-run the full 36-cell sweep against the click-bearing reference and re-gate on
+`|gcc_phat_offset - click_offset| ≤ 2ms` (admitting negative offsets), not PSR + a positivity
+window.
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 
@@ -333,12 +362,16 @@ and doesn't establish for other Android hardware — two halves generalize diffe
 audio stack, well-behaved AAudio, good transducers — though "honest preset handling," originally
 listed here too, is *not* established even on the Pixel: sweep finding 2 in `test2-sweep-results.md`
 shows gain-ratio compression despite `VoiceRecognition`, so the AGC-linearity probe below is what
-would decide it). A Pixel pass is therefore
+would decide it). A Pixel *pass* would be
 a favorable-case existence proof — "the approach and the code are sound, and it clears the bar on a
 good device" — and generalizing it downward to budget or heavy-OEM-skin hardware should be expected to
 get *worse*, not better. (Had it *failed* on Pixel, that would have been near-fatal for the bleed
 approach outright.) There's already adjacent evidence of device variance: the moto g(20) platform-
-latency counter-example (Test 1a) and the Pixel 8/9 200–700ms A/V-sync reports.
+latency counter-example (Test 1a) and the Pixel 8/9 200–700ms A/V-sync reports. **Status 2026-07-08:
+the Pixel has not passed — the calibration-click cross-check showed the prior "35/36 clear 6 dB"
+was 35/36 locking onto a beat-period alias, not the true alignment (`test2-sweep-results.md`). So
+the favorable-case existence proof is not yet established; the re-gated sweep (admitting negative
+offsets, judged against the click) is what would establish it.**
 
 **What establishing generalization would take:** re-run the same harness on a deliberate spread (a
 budget device, a heavy-skin device such as Samsung, a mid-tier), logging per device whether

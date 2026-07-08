@@ -167,6 +167,14 @@ RMS is int16 scale.
 
 ## GCC-PHAT offline pass (2026-07-05)
 
+**Superseded in part (2026-07-08):** the recovered offsets throughout this section and its
+subsections — the +61..+151 ms family, mean +97.2 ms, including the edge cell's "band-robust"
++87.10 ms — were later shown by the calibration-click cross-check to be **~+187 ms aliases** of
+*negative* true harness-basis offsets, and the PSR verdicts describe sharp alias peaks, not
+correct alignments. The band-limiting diagnosis itself (usable band 500-4000 Hz), the RMS
+findings, and the jitter-std analysis survive. Full analysis: "Calibration click cross-check"
+below. The subsections are kept unrevised as the historical record.
+
 Ran `analysis/scripts/run_gcc_phat_sweep.py` over the 36 captures vs the bundled reference track.
 **Result: 0/36 pass** -- 0 confident (>= 10 dB), 0 minimum (>= 6 dB), 36 below. PSR ranges
 0.6-5.8 dB. Recovered offsets are negative (-65 to -126 ms) and vary cell-to-cell, both wrong:
@@ -263,7 +271,10 @@ loopback number -- see the lag-window section below).
   wired-USB route in a different measurement basis than these captures (see the ~201 ms constant in
   the timestamp study below). The ±2 ms referent is now an **in-basis calibration click** embedded
   in the reference track (`test2-step2-plan.md` Next steps item 11); the spread question itself was
-  since resolved by the timestamp decomposition below.
+  since resolved by the timestamp decomposition below. **Resolved 2026-07-08 (cross-check below):
+  97 ms is NOT the round-trip — it is a +187 ms beat-period alias of a ~-81 ms true offset. Test 2
+  step 2 is not passed; this "what still blocks" item is moot — the blocker was never just the
+  missing loopback, it was that the offsets were aliases all along.**
 
 ### Edge-cell diagnosis, band trade-off, and the start-jitter decomposition path (2026-07-05, item 7c follow-up)
 
@@ -380,7 +391,10 @@ small), so it is a calibration term, not jitter -- irrelevant to the "is the spr
 which turns on the std collapse. Confirming that constant is *honest* (that the Pixel's reported
 timestamps aren't lying) is precisely the independent loopback check, still pending the rig. So the
 verdict: the spread is substantially removable harness jitter (validated), on top of a fixed offset the
-loopback will later pin down.
+loopback will later pin down. (Re-decomposed 2026-07-08: the ~201 ms constant is ~14-15 ms of genuine
+measurement-basis residual plus ~187 ms of correlator *alias* -- see "Calibration click cross-check"
+below. The std-collapse conclusion is unaffected: the alias rides at a near-fixed distance from the
+true peak, so the jitter arithmetic carries over.)
 
 **Budget check (added 2026-07-08).** "Inside the 15 ms budget" undersells how tight this is. If the
 5.5 ms residual std were all real alignment error, a *single* overdub pair (two tracks, each with an
@@ -396,6 +410,89 @@ Study captures live in the gitignored `analysis/timestamp_study/` (durable recor
 Not yet done: repeating the decomposition across *varied* physical cells (the cross-cell spread also
 carries real acoustic differences the same-cell study deliberately excludes), and the loopback honesty
 check.
+
+### Calibration click cross-check: the +187 ms family are aliases, not alignments (2026-07-08, item 11)
+
+The in-basis calibration click (item 11; `analysis/src/overdub_analysis/calibration_click.py` +
+`analysis/scripts/prepend_calibration_click.py`) was built precisely as an instrument *independent
+of the GCC-PHAT correlator under test*. Running it against a freshly captured baseline cell
+(`conversational_armslength_faceup_none`, phone unmoved, same geometry as the 9-repeat study)
+exposed that the band-limited GCC-PHAT offsets reported throughout this file are **not correct
+alignments — they are ~+187 ms aliases of *negative* true offsets**, and the "confident" PSR
+verdicts describe sharp alias peaks, not the true peak.
+
+**The measurement (one capture, two independent instruments on the same WAV):**
+
+| Instrument | recovered offset | notes |
+|---|---|---|
+| Calibration click (matched filter) | **-80.98 ms** | onset 5778 vs reference click 9600; quality 16.7 dB (unwindowed), 5.1 dB in the (0,300) onset window |
+| Band-limited GCC-PHAT (500-4000 Hz, unconstrained) | +107.12 ms | PSR 12.1 dB ("confident") |
+| Band-limited GCC-PHAT (lag window 0-300 ms, the sweep default) | +107.12 ms | same — the window does *not* reject it |
+
+The click and the correlator disagree by **+188.1 ms** — essentially exactly one beat period (the
+reference's measured inter-onset interval is ~187 ms, `analysis/scripts/check_reference_periodicity.py`).
+So the GCC-PHAT argmax is locking onto a **beat-period self-similarity peak** of the reference, one
+bar/beat displaced from the true alignment, not onto the true round-trip peak.
+
+**Three things this overturns in the record above:**
+
+1. **The "+97 ms population mean" and the +61..+151 ms family are alias offsets, not the round-trip.**
+   A roughly *constant* +187 ms displacement of the alias from the true peak (the beat period is
+   fixed) is exactly what would make a spread of *true* offsets (say -120..-30 ms across cells,
+   from real acoustic/path differences) appear as +61..+151 ms — the whole family shifts by the
+   same ~187 ms. So the "+90 ms (2.5x) spread, too wide for a fixed round-trip" alarm was right
+   that the offsets were wrong, but the *direction* of the error was missed: they are too large
+   and positive because they are aliases, not because the round-trip varies.
+2. **The edge cell's "band-robust 87.10 ms" is also an alias** (+87 ≈ -100 + 187), not "the
+   alignment is correct, only the PSR dipped." The band-robustness was real *for the alias* — the
+   beat-period peak is a genuine feature of the reference's autocorrelation, so it survives band
+   changes. The "PSR is a fragile label, the offset is robust" lesson (offline-dsp.md) inverts:
+   when the robust offset is an alias, its band-robustness is a trap, not a virtue.
+3. **The ~201 ms timestamp-study residual is not one calibration constant.** It decomposes into
+   ~14-15 ms of genuine measurement-basis residual (WAV-sample-0 ≠ input-frame-0, the real
+   calibration term the loopback will eventually pin) plus ~187 ms of correlator *alias*. The
+   std-collapse conclusion (jitter 13.4 → 5.5 ms) is unaffected — the alias rides at a
+   near-fixed distance from the true peak, so subtracting the timestamp offset removes jitter
+   identically whether the GCC-PHAT offset is the true peak or its alias — but the *mean* was
+   never a pure calibration constant, and the loopback's job of "pinning the constant" is smaller
+   than the +201 ms number suggested.
+
+**Why the lag window and the PSR gate both failed to catch this.** The beat-period alias sits at
++107 ms — comfortably inside the (0, 300 ms) "physically plausible" window, and the prior that "a
+round-trip is positive" is wrong *for the harness's measurement basis*: because the captured WAV's
+sample 0 precedes input-stream frame 0 (the input buffer is sized large and drained from startup),
+the true GCC-PHAT offset is *negative* in this basis, so the plausible-offset window was pointed
+the wrong way and the alias — the largest *positive* peak — won by default. PSR blesses it because
+the beat-period peak is a real, sharp feature of the reference's autocorrelation. **Both gates
+assume the argmax is near the truth; an alias one beat away violates that assumption, and neither
+gate tests it.** The calibration click is precisely the independent instrument that does — it has
+no beat-period ambiguity (the chirp is aperiodic, detected by matched filter).
+
+**What survives from the prior analysis:** (a) the band-limiting diagnosis — the usable-SNR band
+*is* 500-4000 Hz, and band-limiting does sharpen the (alias) peak, which is why it "recovered
+35/36"; (b) the RMS-based acoustic findings (orientation/volume/distance/obstruction); (c) the
+jitter-std decomposition, which is alias-independent; (d) the cross-device and AGC-probe
+caveats. **What does not survive:** any per-cell offset number, the "+97 ms population mean," the
+"offset is band-robust therefore trustworthy" framing, and the premise that PSR ≥ 6 dB + lag-window
+constitutes a sufficient alignment gate. The Test 2 step-2 pass bar is **not met** — it was never
+within ±2 ms of truth, because the offsets were never the truth.
+
+**Implication for the gate and the lag window.** A lag window that admits *negative* offsets (the
+harness basis is negative) plus the calibration-click ground truth per capture is the minimal
+honest gate: gate on `|gcc_phat_offset - click_offset| ≤ 2 ms`, not on PSR + a positivity window.
+Alternatively, re-basis the captures (detect the click, trim both reference and capture to
+beatbox-only, align in the trimmed basis where the offset is the small positive acoustic
+round-trip) so the positivity prior holds — the README documents this trim. Either way, the
+beat-period alias must be rejected by an instrument that can see it; PSR and a positivity window
+cannot.
+
+**Artifacts:** `analysis/click_check/` (the baseline capture + detection output),
+`analysis/scripts/detect_calibration_click.py` (the per-capture ground-truth detector),
+`analysis/scripts/check_reference_periodicity.py` (reference self-similarity / alias-risk map —
+plain band-limited autocorrelation; PHAT-of-self is always a perfect impulse and hides the
+periodicity, so the plain autocorrelation is what surfaces the beat-period peak a correlator can
+alias onto). All gitignored captures regeneratable; scripts and
+the `calibration_click` library are committed.
 
 ## Next steps (post-sweep)
 
@@ -423,8 +520,25 @@ check.
   wired USB, not speaker->mic -- and wrong measurement basis vs. these captures' ~201 ms constant).
   Replaced by: **embed an in-basis calibration click in the reference track** and judge the GCC-PHAT
   offset against the click-derived per-capture offset in the same WAV (`test2-step2-plan.md` Next
-  steps item 11). The rig's remaining job is the `getTimestamp` honesty check. Until either exists,
-  the 97 ms offset is internally consistent but unverified against truth.
+  steps item 11). The rig's remaining job is the `getTimestamp` honesty check. ~~Until either exists,
+  the 97 ms offset is internally consistent but unverified against truth.~~ **Resolved 2026-07-08:
+  the 97 ms offset (and the whole +61..+151 ms family) is not the truth — it is a +187 ms
+  beat-period alias of a negative true offset; see "Calibration click cross-check" above. Test 2
+  step 2 is NOT passed.**
+- **Re-gate GCC-PHAT on the calibration click, not on PSR + a positivity window (2026-07-08).**
+  The cross-check showed PSR ≥ 6 dB and the (0, 300 ms) lag window both bless a +187 ms beat-period
+  alias. The honest gate is `|gcc_phat_offset - click_offset| ≤ 2 ms` per capture, with the lag
+  window admitting *negative* offsets (the harness basis is negative — the captured WAV's sample 0
+  precedes input-stream frame 0). Either that, or re-basis by trimming to beatbox-only content
+  (detect click, trim both sides equally — README) so the positive-round-trip prior holds. Then
+  re-run the 36-cell sweep against the click-bearing reference to get real per-cell offsets.
+- **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
+  Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed ratios
+  and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
+  production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis band. Pin
+  the realistic ratio *before* running; the baseline cell at that ratio must still clear the bar.
+  Pure Python + existing captures; no device time. (Note: must be re-gated per the item above —
+  judge against the click, not PSR.)
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
