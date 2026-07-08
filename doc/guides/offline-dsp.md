@@ -67,8 +67,9 @@ Python) so dependency versions stay pinned.
   correlation; a sharp *alias* still scores high. Two corollaries. (1) The recovered offsets were
   NOT a "consistent ~97 ms" as a single-cell spot-check had suggested — across the matrix they
   spanned +61 to +151 ms plus the -15 s outlier, too wide for a fixed round-trip, so the
-  single-cell "+97 ms" was over-generalized (the +61-151 ms spread is plausibly per-capture
-  playback/capture-start jitter, but can't be confirmed benign without a loopback ground truth).
+  single-cell "+97 ms" was over-generalized (the +61-151 ms spread was later confirmed to be mostly
+  per-capture playback/capture-start jitter via the hardware-timestamp decomposition — see the
+  final bullet below).
   Gate alignment on PSR *and* a plausible-lag constraint (restrict argmax — and the sidelobe
   search — to e.g. 0-300 ms via `gcc_phat`'s `lag_window`), never PSR alone; constraining it turned
   the -15 s alias into a +65 ms recovery and left offsets at 97.2 +/- 17.5 ms.

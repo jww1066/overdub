@@ -24,7 +24,9 @@ bleed-dependency question for headphone sessions rather than working around it.
 The same review surfaced a second, independent gap: neither test addresses whether per-hop alignment
 error compounds across a multi-hop forwarding chain (see design-summary.md's "Chain-of-forwarding
 alignment error"). Test 3 (proposed) below is a synthetic Monte Carlo extension of Test 2's Python
-harness to check this, once real per-hop error data exists to drive it.
+harness to check this, once real per-hop error data exists to drive it. (Revised 2026-07-08: the
+"compounding" framing was corrected — under align-to-original, per-hop noise doesn't chain; see
+Test 3's model correction.)
 
 ## Skills research (informs scope, not method)
 
@@ -55,7 +57,8 @@ results:
    | Test 1 — buffer-stability variance | ±3ms | Foundational/systematic error that every downstream stage inherits; kept small since it should be near-zero if the continuous-stream assumption holds. |
    | Test 1a — AAudio self-reported vs. ground-truth latency | ≤5ms discrepancy | Needs enough margin that trusting the platform number alone doesn't already consume a third of the budget. |
    | Test 2 — correlation peak quality | PSR ≥ 6dB (minimum acceptable), ≥10dB (confident) | Borrowed from established TDOA/GCC-PHAT practice for "is this peak trustworthy," not invented from this dataset. |
-   | Test 3 — cumulative multi-hop drift | 95th-percentile cumulative offset ≤15ms at N=4 hops | Uses the same top-level ceiling as the final acceptance bar once independent per-hop errors compound. |
+   | Test 2 — recovered-offset accuracy | within ±2ms of in-basis ground truth | Was stated only in Test 2's pass bar and omitted from this table (fixed 2026-07-08); it is the per-hop alignment-accuracy allowance the multi-hop model consumes. |
+   | Test 3 — multi-hop misalignment | 95th-percentile max pairwise offset ≤15ms at N=4 hops | The same top-level ceiling applied end-to-end, not an independent allowance (see point 4). Reworded 2026-07-08 from "cumulative drift": per-hop errors don't sum under align-to-original — see the revised Test 3. |
 
 3. **Caveat:** these numbers are literature-grounded and defensible as genuinely decided in
    advance, but they weren't validated against phone-speaker-to-phone-mic bleed specifically. If
@@ -63,6 +66,19 @@ results:
    PSR floor even at high SNR, that's an *achievability* finding, not grounds to quietly lower the
    *acceptability* bar — it would mean reconsidering the design direction, per this doc's stated
    purpose, not relaxing the threshold post-hoc.
+
+4. **Budget reconciliation against first measured data (added 2026-07-08).** These rows are not
+   independent allowances that sum to 15ms — Test 3's 15ms is the same top-level ceiling applied
+   end-to-end, consuming the per-hop errors Tests 1/1a/2 bound. And the first measured numbers
+   already crowd it: the Pixel 10 timestamp study (`test2-sweep-results.md`) leaves a **5.5ms
+   per-measurement residual std** after timestamp correction. If that were all real alignment
+   error, a *single* overdub pair (two tracks, each with an independent ~5.5ms-std error vs. the
+   shared reference) has a pairwise-difference std of ~7.8ms — 95th percentile ≈15ms, the entire
+   ceiling consumed at one hop, before any chain. It also exceeds Test 1a's ≤5ms allowance as a
+   raw number. Part of the 5.5ms is plausibly measurement quantization (band-limited-correlation
+   resolution + `getTimestamp` granularity) rather than product-path error, but decomposing that
+   split is now load-bearing, not a footnote — the in-basis calibration click (Test 2's
+   ground-truth correction below) is the instrument that decomposes it.
 
 ## Test 1 — Latency harness (continuous-buffer stability)
 
@@ -73,11 +89,24 @@ results:
 **Hardware status (2026-07-05):** loopback rig ordered — a PassMark Audio Loopback Plug (TRRS)
 plus a Movo UCMA-2 USB-C-to-TRRS adapter, needed since the target device (Pixel 10) has no 3.5mm
 jack. This is a fully electrical loopback path (phone USB-C → UCMA-2 → PassMark plug), so no
-physical clap/acoustic signal is needed for this test — OboeTester generates and reads back its own
-test signal over the wired connection. Test 2's acoustic bleed test is unaffected by this and still
+physical clap/acoustic signal is needed for this test — the test signal is generated and read back
+over the wired connection, primarily by the harness's own capture path with OboeTester as a
+cross-check (see Method below). Test 2's acoustic bleed test is unaffected by this and still
 uses the phone's built-in speaker/mic directly.
 
-**Method:** Loopback test — physical clap or a known click track through a loopback cable — repeated ~20 times. Check `AAudioStream_getXRunCount()` for buffer underruns on each run. Confirm the measured offset is stable across repetitions and doesn't drift when the lead-in and target recording are scheduled as one continuous stream vs. (as a negative control) two sequentially-scheduled players.
+**Method (revised 2026-07-08 — stale "physical clap" wording removed; the rig is fully electrical,
+per the hardware-status note above):** drive a known click/test signal through the electrical
+loopback, **through the harness's own continuous-buffer capture path — not OboeTester alone.**
+OboeTester measures the *device's* round-trip latency, but it cannot test this implementation's
+scheduling-seam hypothesis, and its number lives in a different measurement basis than the
+harness's captures (see Test 2's ground-truth correction), so it serves as a sanity cross-check,
+not the primary instrument. Repeat ~20 times. Check `AAudioStream_getXRunCount()` for buffer
+underruns on each run. Confirm the measured offset is stable across repetitions and doesn't drift
+when the lead-in and target recording are scheduled as one continuous stream vs. (as a negative
+control) two sequentially-scheduled players. The electrical path is also deliberately the
+instrument here rather than an acoustic click: no room noise or reverb, so rep-to-rep variance
+reflects scheduling behavior rather than acoustics — which matters for a test whose negative
+control must *detectably* fail.
 
 **What this answers:** Direct yes/no on whether the "no scheduling seam" assumption holds. Doesn't require musical content or a second device.
 
@@ -88,6 +117,15 @@ fail** regardless of measured variance, since an underrun invalidates the contin
 assumption outright. The negative-control (two sequentially-scheduled players) is expected to fail
 this bar — if it doesn't, that's a signal the test rig isn't sensitive enough to detect a scheduling
 seam, not that seams are harmless.
+
+**Threshold clarification (2026-07-08):** the ±3ms bar applies to the offset *within a session* —
+equivalently, to per-rep offsets after subtracting each rep's own `getTimestamp`-derived stream
+offset. It does **not** apply to raw offsets compared across ~20 independently-started sessions:
+the Pixel 10 timestamp study (`test2-sweep-results.md`) measured ~13.4ms std of benign per-session
+start jitter across independently-started stream pairs, which would blow ±3ms for reasons already
+understood and unrelated to the continuous-stream hypothesis this test exists to check. (The
+product self-measures within one continuous session, so within-session is also the
+product-relevant quantity.)
 
 **Confidence:** High confidence this test design is correct — it mirrors Google's own recommended latency-measurement approach (OboeTester, per AOSP's audio latency documentation). Low confidence in what the result will be — the design doc already flags real A/V sync bugs (200–700ms) reported by Pixel 8/9 users as a different-but-adjacent failure mode, which is a signal, not a prediction.
 
@@ -100,8 +138,8 @@ entire bleed-dependency question for headphone-wearing users rather than requiri
 clock) match the ground-truth round-trip latency measured by the physical loopback, closely enough
 to use directly as the alignment offset — with no dependence on any acoustic bleed signal?
 
-**Setup:** The same loopback rig as Test 1 (physical clap/click track through a loopback cable) — no
-new hardware. Log `AAudioStream_getTimestamp()` (or Oboe's equivalent) alongside the
+**Setup:** The same loopback rig as Test 1 (the fully electrical USB-C loopback — no clap/acoustic
+signal, per Test 1's hardware-status note) — no new hardware. Log `AAudioStream_getTimestamp()` (or Oboe's equivalent) alongside the
 ground-truth offset already being measured for Test 1, across whatever output routes are available
 (built-in speaker, wired headset, Bluetooth if on hand).
 
@@ -127,6 +165,44 @@ Bluetooth, and the app could use different mechanisms per route.
 single anecdotal report, not a systematic test, so this is a genuinely open question rather than one
 with a directional prior.
 
+**Status update (2026-07-08):** partially de-risked ahead of the rig. The Pixel 10 timestamp study
+(`test2-sweep-results.md`, "Stream-timestamp decomposition confirmed") already shows `getTimestamp`
+succeeding on both streams and tracking per-session start jitter (subtracting it collapses the
+run-to-run offset std 13.4→5.5ms) — the mechanism is *available and self-consistent* on this
+device. What the rig still owes this test is the *honesty* check: that the reported values match
+physical truth (the moto g(20) failure class) on the route the rig measures. Note the 5.5ms
+residual std brushes this test's ≤5ms allowance as a raw number; how much of it is quantization
+vs. real error is decomposed by the in-basis calibration click (Test 2's ground-truth correction).
+
+**Rig scoping — why the loopback is still worth running (added 2026-07-08).** After the
+ground-truth correction (Test 2), the rig no longer serves as any test's ±2ms referent, which
+raises the fair question of what it still establishes. The answer is narrower than the original
+scoping, and more decisive:
+
+- **It is the only ground truth for the route where the product trusts timestamps blind.** The
+  headphone-monitoring case this test exists for has, by premise, no acoustic path back to the
+  mic — so the in-basis calibration click (which validates acoustically, speaker→mic only) cannot
+  reach it. An electrical loopback is the only independent measurement of what leaves the jack and
+  when — i.e. the only way to catch a moto-g(20)-class lie on exactly the route where the product
+  would rely on the reported number with no fallback signal.
+- **Rig + click compose per-stream.** Timestamp honesty is a per-stream, per-route property, and a
+  realistic headphone session likely runs headset-output + built-in-mic input (inline headset mics
+  are poor for vocals). The rig validates the headset-output stream's timestamps; the click
+  validates the built-in-speaker output and built-in-mic input. Together the two instruments cover
+  every stream/route half the product uses; neither alone does.
+- **The result is decisive in both directions.** Within the ≤5ms bar against electrical truth: the
+  headphone path is viable as designed and the forced-chirp/adaptive-hybrid fallbacks stay
+  shelved. Outside it: a hard trigger for those fallbacks on that route — a design fork, not a
+  shrug.
+- **What the rig does NOT establish:** anything about the speaker→mic acoustic path or Test 2's
+  ±2ms bar (both the calibration click's job now), and anything about Bluetooth — a TRRS plug
+  can't reach the BT stack, so if BT monitoring ever stops being "ruled unpredictable"
+  (design-summary.md) it needs its own honesty check.
+- **Cross-device caveat:** a wired-route honesty pass on the Pixel is a favorable-case existence
+  proof, same as the sweep — the moto g(20) anecdote is a *per-device* failure class, so whether
+  the product can trust timestamps at runtime or must self-check them per device remains a
+  cross-device question regardless of this result.
+
 ## Test 2 — Single-device bleed + offline alignment
 
 **Question:** Does GCC-PHAT recover a clean, usable alignment peak from real phone-speaker-to-phone-mic bleed, or does real-world SNR fall below what the algorithm needs?
@@ -138,13 +214,32 @@ with a directional prior.
 1. **Synthetic validation first, on Windows.** Inject known delays and controlled noise levels into a clean signal using Python (`scipy.signal.correlate` plus an FFT-based phase transform for the GCC-PHAT weighting). Confirm the implementation recovers the correct offset and map out the theoretical SNR floor where it starts to fail. This is pure software — no phone needed — and isolates "is the code correct" from "does the physical setup work."
 2. **Real-bleed recording, one phone.** Record the clean beatbox track, then have the same phone play it back through its speaker while recording the overdub through its mic. Vary playback volume and phone orientation/distance from any obstruction to map where the correlation peak degrades. Run the validated GCC-PHAT implementation from step 1 against this real data.
 
+3. **Vocal-interference injection (added 2026-07-08; pure Python, no device time).** The 36-cell
+   sweep captures bleed against a quiet room floor, but production must find the bleed *underneath
+   a loud, close-mic vocal performance* — and the validated 500–4000 Hz analysis band is exactly
+   the speech band, so the vocal is maximally in-band interference. This was listed as an open
+   item in design-summary.md ("loud/close-mic vocal vs. quiet bleed") but covered by no test.
+   Method: record one dry close-mic vocal take (rap/sung), mix it into the existing 36 captures at
+   controlled vocal-to-bleed ratios using the step-1 harness's controlled-injection machinery, and
+   re-run the band-limited GCC-PHAT. Output: the vocal-to-bleed ratio at which the baseline cell
+   stops clearing the bar — the production-relevant analog of step 1's SNR floor. **Pin the
+   "realistic ratio" in advance** (measure the RMS of an actual performance take at arm's length
+   against the baseline cell's bleed RMS *before* looking at any PSR results) so pass/fail isn't
+   judged after seeing the data. The baseline cell at that realistic ratio must clear the same
+   PSR ≥ 6dB + ±2ms bar for Test 2's conclusion to extend to production conditions. Fold the
+   step-1 SNR-floor re-measurement (band-limited pipeline + real beatbox reference) into this
+   step, since the click-train floor did not transfer.
+
 **Implementation status (2026-07-05):** step 1's Python GCC-PHAT is implemented and its
 synthetic-validation gate passes (`analysis/src/overdub_analysis/gcc_phat.py` +
 `synth.py`, 14 pytest cases green). At high/clean SNR (30 dB ≥ the 20 dB bar) the recovered
 offset is within ±1 sample of the injected delay and PSR ≥10 dB; the 6 dB PSR floor for a
 broadband periodic click train sits at ≈ −30 dB SNR (run
-`analysis/scripts/sweep_snr_floor.py` to reproduce) — far below any realistic phone-bleed SNR,
-a strong positive finding for this signal class. The synthetic fixtures double as the
+`analysis/scripts/sweep_snr_floor.py` to reproduce) — far below any realistic phone-bleed SNR
+for that signal class. (Caveat, added 2026-07-08: that floor did *not* transfer to the real
+signal — the real sweep failed 0/36 full-band — and it has not been re-measured with the
+band-limited pipeline, the real beatbox reference, or vocal interference present; re-measuring it
+is folded into step 3 below.) The synthetic fixtures double as the
 port-correctness regression tests the 093038 review asked for when the algorithm is later
 ported to Kotlin/C++. Step 2's Android capture harness now has its Gradle scaffold, pure-Kotlin
 pieces, the Oboe full-duplex native capture engine (Tier-2 green on a real Pixel 10 as of
@@ -163,10 +258,11 @@ phone speaker rolls off the bass; HF bands are mic-noise, not signal). **A band-
 >=10 dB). **But the recovered offset is not yet trustworthy**: offsets span +61 to +151 ms (not
 the "consistent +97 ms" the single baseline cell suggested), and one cell scored PSR 11.6 dB
 "confident" on a physically impossible -15.25 s wraparound alias — so PSR alone does not validate
-alignment. Constraining the lag search to a plausible window and recalibrating the PSR
-exclusion-window are the remaining steps before this is a real pass (see `test2-step2-plan.md`
-"Next steps" items 7a-7c); the ±2 ms-vs-ground-truth half of the bar also still waits on Test 1's
-loopback number. Results remain Pixel-10-specific (see "Cross-device generalization" below).
+alignment. The lag-window and PSR-exclusion re-checks are since done (items 7a-7b in
+`test2-step2-plan.md`); the ±2 ms-vs-ground-truth half of the bar still lacks its referent — which,
+per the ground-truth correction under "Pass/fail threshold" below (2026-07-08), is an in-basis
+calibration click embedded in the reference track, *not* Test 1's loopback number as previously
+stated here. Results remain Pixel-10-specific (see "Cross-device generalization" below).
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
@@ -178,11 +274,35 @@ loopback number. Results remain Pixel-10-specific (see "Cross-device generalizat
   borrowed from standard TDOA/GCC-PHAT practice, not invented from this dataset) — that crossing
   point is "the SNR floor," an output of this test, not a threshold to hit.
 - **Step 2 (real bleed):** counts as a usable lock in a given condition (volume/orientation/distance)
-  if **PSR ≥ 6dB and recovered offset is within ±2ms** of the ground truth already established by
-  Test 1's loopback measurement. **Overall Test 2 pass bar:** the baseline realistic condition
+  if **PSR ≥ 6dB and recovered offset is within ±2ms** of the in-basis calibration-click ground
+  truth (see the ground-truth correction below — *not* Test 1's loopback number, as this bar
+  originally read). **Overall Test 2 pass bar:** the baseline realistic condition
   (comfortable conversational playback volume, phone within arm's reach, no obstruction) must clear
   this bar. Edge conditions (quiet volume, phone in a pocket) failing is acceptable and becomes a
   documented UX constraint (e.g., app enforces a minimum playback volume) rather than a test failure.
+
+**Ground-truth correction (2026-07-08).** This bar originally read "within ±2ms of the ground truth
+already established by Test 1's loopback measurement." That comparison is invalid as written, for
+two independent reasons:
+
+- **Route mismatch:** the loopback rig is electrical via the USB-C adapter, so it measures the
+  wired route's round trip — not the builtin-speaker→builtin-mic path Test 2's bleed uses.
+  Per-route latencies differ; that is Test 1a's own premise.
+- **Measurement-basis mismatch:** the harness's GCC-PHAT offset carries a large fixed
+  harness-specific constant (~201ms on the Pixel 10 — the captured WAV's sample 0 is not
+  input-stream frame 0 once the input-buffer sizing and startup drain gap fold in; see
+  `test2-sweep-results.md`). A latency measured by another tool (OboeTester) in its own basis
+  cannot be compared at ±2ms against an offset measured in the harness's basis.
+
+The ground truth must be **in-basis and on-route**: embed a short high-SNR calibration click at a
+known sample position in the bundled reference track, detect its onset in the captured WAV (onset
+detection at high SNR is trivially accurate and independent of the correlator being judged), and
+judge the GCC-PHAT-recovered offset against that click-derived offset *in the same file*. This
+also decomposes the timestamp study's 5.5ms residual std into correlator error vs. measurement
+quantization (see "Quantitative thresholds," point 4). Test 1's loopback rig keeps a narrower,
+still-necessary role: independently verifying that `getTimestamp` values are honest (the
+moto g(20) failure class) on the route it actually measures. Requires regenerating the bundled
+reference asset and re-capturing at least the baseline cell — the existing 36 WAVs carry no click.
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 
@@ -198,8 +318,8 @@ and doesn't establish for other Android hardware — two halves generalize diffe
   click train) come from the synthetic step 1 with no device in the loop, so the SNR→PSR mapping is a
   property of the algorithm and signal class, not the phone. The PSR ≥ 6dB / offset-within-±2ms bars
   are borrowed from TDOA practice, not fit to Pixel data, and the ±2ms bar is measured against *that
-  device's own* loopback ground truth, so the criterion is self-relative and transfers even though the
-  absolute latency does not.
+  device's own* in-basis ground truth (the calibration click, per the ground-truth correction above),
+  so the criterion is self-relative and transfers even though the absolute latency does not.
 - **Whether real bleed clears that floor does *not* generalize** — an empirical per-device question
   dominated by (a) speaker/mic hardware SNR (loudness, sensitivity, chassis geometry — the Pixel 10's
   baseline capture RMS is a Pixel-10 number) and, the bigger wildcard, (b) OEM mic DSP. The harness
@@ -210,7 +330,10 @@ and doesn't establish for other Android hardware — two halves generalize diffe
   arithmetic, not physics), and route-forcing quirks.
 
 **Direction of the bias:** the Pixel 10 is close to a *best case* for this approach (clean near-AOSP
-audio stack, well-behaved AAudio, good transducers, honest preset handling). A Pixel pass is therefore
+audio stack, well-behaved AAudio, good transducers — though "honest preset handling," originally
+listed here too, is *not* established even on the Pixel: sweep finding 2 in `test2-sweep-results.md`
+shows gain-ratio compression despite `VoiceRecognition`, so the AGC-linearity probe below is what
+would decide it). A Pixel pass is therefore
 a favorable-case existence proof — "the approach and the code are sound, and it clears the bar on a
 good device" — and generalizing it downward to budget or heavy-OEM-skin hardware should be expected to
 get *worse*, not better. (Had it *failed* on Pixel, that would have been near-fatal for the bleed
@@ -232,37 +355,53 @@ allowlist or a runtime bleed-SNR self-check. This is a large part of why Test 1a
 self-reported latency, a more nearly device-agnostic mechanism) exists, and why the design contemplates
 per-route/per-device mechanism selection rather than one path for all hardware.
 
-## Test 3 (proposed) — Multi-hop alignment drift simulation
+## Test 3 (proposed; revised 2026-07-08) — Multi-hop alignment error simulation
 
-**Question:** Do independent per-hop alignment errors compound across a chain of overdubs
-(A→B→C→D...) into audible drift by the last track, even if raw stems (not a flattened mix) are
-forwarded at every hop?
+**Model correction (2026-07-08):** as originally framed ("do independent per-hop errors compound
+into cumulative drift"), this test modeled a mechanism the design has already eliminated. Under
+the raw-stem decision, every hop aligns against the *original* reference, so per-hop errors do not
+chain: track k's timing error vs. the shared reference is an independent draw e_k, and the
+misalignment between any two tracks i and j is |e_i − e_j| — the difference of two independent
+draws, essentially flat in chain length (the worst pair among N tracks grows only as the range of
+N iid draws, far slower than the random-walk sum "cumulative" implies; a random walk arises only
+if each hop aligns to the *previous* track, which the raw-stem decision forbids). A Monte Carlo
+that sums per-hop draws would "discover" compounding that cannot occur. What genuinely does worsen
+with chain length — and what the simulation must model instead — is:
 
-**Setup:** Pure synthetic, extends Test 2 step 1's Python harness — no phone needed. Model each hop's
-alignment error as an independent random draw from the error distribution characterized empirically
-by Test 1a/Test 2 (once that data exists), or from a range of plausible values as a placeholder if
-not. Simulate chains of N hops (e.g. N = 2 through 6) and track the cumulative worst-case offset
-between the earliest and latest track across many simulated chains (Monte Carlo, 1000+ trials per
-chain length).
+1. **Per-device systematic bias.** Each device's alignment mechanism can carry a fixed bias b_k
+   (the moto g(20) ~100ms timestamp discrepancy is this class; the harness's own ~201ms
+   measurement-basis constant is the same species, caught only because it was measured). Pairwise
+   misalignment is then (b_i − b_j) + (e_i − e_j), and between heterogeneous devices the bias
+   *differences* — which no chain-length statistics average away — are the realistic dominant
+   term, not noise accumulation.
+2. **Interference growth.** Hop k correlates against the original stem through the bleed of the
+   k−1 *other* stems plus the performer's own vocal, all uncorrelated with the reference — so
+   per-hop error variance grows with position in the chain rather than being iid. Its magnitude
+   comes from Test 2 step 3 (vocal-interference injection), not from an assumed constant.
 
-**What this answers:** Whether the "always forward raw stems" mitigation
-(design-summary.md's "Chain-of-forwarding alignment error") is sufficient on its own, or whether a
-chain of even small per-hop errors accumulates past an audible threshold (e.g. ±10–20ms) at
-realistic chain lengths — which would mean either a stricter per-hop accuracy requirement, or an
-explicit re-alignment step against the *original* reference at some point in the chain (rather than
-only against the immediately-prior track).
+**Question (revised):** With per-device biases and position-dependent interference modeled, does
+the 95th-percentile **max pairwise** offset between any two tracks stay ≤15ms at N=4?
 
-**Pass/fail threshold:** Using the same 15ms top-level ceiling, the 95th-percentile cumulative
-worst-case offset across simulated chains must stay **≤15ms at N=4 hops** (treated as the realistic
-typical chain length) for the "always forward raw stems" mitigation to be declared sufficient on its
-own. N=6 is tracked as a stress case, not a hard gate. Exceeding 15ms at N=4 fails this test and
-means either a stricter per-hop accuracy requirement or an explicit mid-chain re-alignment step
-against the original reference is needed.
+**Setup:** Unchanged in spirit — pure synthetic, extends Test 2 step 1's Python harness, no phone
+needed; Monte Carlo, 1000+ trials per chain length (N = 2 through 6). Error model per hop: a
+device-bias draw (from a cross-device bias distribution — a placeholder range until at least a
+second device's data exists) plus a noise draw whose variance follows the
+interference-vs-hop-position schedule from Test 2 step 3.
 
-**Confidence:** High confidence the simulation approach itself is sound — standard
-error-propagation/Monte Carlo exercise. Low confidence in the outcome — no data yet on the actual
-per-hop error distribution, so this test's realistic inputs aren't known until Test 1a/Test 2 run
-first. **Sequencing: run last of the four**, since it consumes their output.
+**What this answers:** Whether raw-stem forwarding plus the measured per-hop accuracy is
+sufficient on its own, or whether a per-device bias calibration (e.g. a one-time on-device
+self-check) and/or an explicit mid-chain re-alignment against the original reference is needed.
+
+**Pass/fail threshold:** The 95th-percentile max pairwise offset across simulated chains must stay
+**≤15ms at N=4 hops** (the same top-level ceiling as the final acceptance bar; N=4 treated as the
+realistic typical chain length). N=6 is tracked as a stress case, not a hard gate. Exceeding 15ms
+at N=4 fails this test and means a stricter per-hop accuracy requirement, a bias-calibration step,
+or a mid-chain re-alignment step is needed.
+
+**Confidence:** High confidence in the no-chaining argument itself — it is arithmetic on the
+design's own alignment topology, not simulation. The open empirical inputs are the cross-device
+bias distribution and the interference-vs-position variance, so **sequencing is unchanged: run
+last of the four** — it consumes Test 1a's, Test 2's, and step 3's outputs.
 
 ## Explicitly out of scope for this prototype
 

@@ -9,11 +9,17 @@ the captures to the GCC-PHAT implementation from step 1 to map where the correla
 
 Two things this step depends on aren't ready yet, but neither blocks *building* the harness below:
 
-- **Test 1's ground-truth latency number.** Test 2's own pass bar (prototype-plan.md) is "PSR ≥ 6dB
+- **Test 1's ground-truth latency number.** Test 2's own pass bar (prototype-plan.md) was "PSR ≥ 6dB
   *and* recovered offset within ±2ms of the ground truth already established by Test 1's loopback
   measurement." The loopback rig has been ordered but hasn't arrived, so that ground truth doesn't
   exist yet. This blocks *judging* captured data, not capturing it — the harness, its reference
-  track, and all automated tests below can be built and run now.
+  track, and all automated tests below can be built and run now. **Correction (2026-07-08): the
+  loopback number cannot serve as this ground truth even once the rig arrives** — it measures the
+  wired-USB route (not speaker→mic) and lives in a different measurement basis than the harness's
+  captures (which carry a ~201ms WAV-vs-stream-clock constant; see `test2-sweep-results.md`). The
+  ±2ms bar is now judged against an **in-basis calibration click** embedded in the reference track
+  (see prototype-plan.md's ground-truth correction and Next steps item 11). The rig's remaining
+  role is the independent `getTimestamp` honesty check.
 - **Test 2 step 1 (Python GCC-PHAT).** Now implemented and passing its synthetic-validation gate
   (`analysis/src/overdub_analysis/gcc_phat.py` + `synth.py`, 14 pytest cases green; 6 dB PSR floor
   ≈ −30 dB SNR for a broadband click train via `analysis/scripts/sweep_snr_floor.py`). The
@@ -56,6 +62,11 @@ items above.
   open in LowLatency/Exclusive, zero XRuns, captured duration/format correct, capture non-silent
   (bleed reaches the mic: baseline RMS ~320-340), metadata tagged end-to-end, speaker route holds,
   and 5 back-to-back runs leak-free. Native output rate negotiated at 48000 Hz, 96-frame bursts.
+  **Scope clarification (2026-07-08): the green `speakerRouteHolds` ran with no headset
+  connected** — per its own code comment it confirms the default speaker path only. The
+  headset-connected override variant in the Tier-2 list below is a manual-precondition test that
+  has **not yet run**, so whether `setPreferredDevice()` can demote an active headset route remains
+  unverified — which also gates the feasibility of design-summary.md's forced-chirp fallback.
 - **XRun finding + fix (diagnosed on-device, per CLAUDE.md "Diagnose before re-implementing").** The
   first cold runs showed non-zero XRuns, and the hard-fail zero-XRun assertion was flaky depending on
   test order (it ran last, after the audio path was warm). Logging each stream separately isolated it
@@ -362,24 +373,29 @@ Pure-Kotlin logic with no Android framework dependency:
 ## Exit criteria
 
 Reiterating `prototype-plan.md`'s existing bar (not redefining it here): the baseline realistic
-condition must clear PSR ≥ 6dB and recovered offset within ±2ms of Test 1's loopback ground truth.
-Edge-condition failures are documented as UX constraints (e.g., "app enforces a minimum playback
-volume"), not grounds to fail the test outright.
+condition must clear PSR ≥ 6dB and recovered offset within ±2ms of the in-basis calibration-click
+ground truth (revised 2026-07-08 — formerly "Test 1's loopback ground truth," which is the wrong
+route and measurement basis; see prototype-plan.md's ground-truth correction and Next steps
+item 11). Edge-condition failures are documented as UX constraints (e.g., "app enforces a minimum
+playback volume"), not grounds to fail the test outright.
 
 ## Cross-device generalization of the Pixel 10 results
 
 The Tier-2 numbers above (zero XRuns after the warmup fix, baseline capture RMS ~320-340, 48000 Hz /
 96-frame bursts, streams granted `LowLatency`/`Exclusive`) are gathered on a *single* Pixel 10, and
 should be read as a **favorable-case existence proof, not a population estimate**. The Pixel is close
-to a best case for this approach — clean near-AOSP audio stack, well-behaved AAudio, good transducers,
-and (likely) honest `InputPreset` handling. `prototype-plan.md`'s Test 2 "Cross-device generalization"
+to a best case for this approach — clean near-AOSP audio stack, well-behaved AAudio, good transducers.
+(2026-07-08: "likely honest `InputPreset` handling" was originally claimed here too, but sweep
+finding 2 in `test2-sweep-results.md` shows gain-ratio compression on the Pixel itself despite
+`VoiceRecognition`, so preset honesty is not established even on the best-case device; the
+AGC-linearity probe below is what would decide it.) `prototype-plan.md`'s Test 2 "Cross-device generalization"
 note carries the full analysis; the harness-specific points:
 
 - **What generalizes** is the algorithm and the pass/fail *criteria* — they're device-independent,
   validated by the synthetic step 1 with no phone in the loop (the SNR→PSR mapping, ±1-sample accuracy,
   the 6dB PSR floor, and the PSR≥6dB / offset-within-±2ms bars). The ±2ms bar is measured against
-  *that device's own* loopback ground truth, so it's self-relative and transfers even though the
-  absolute latency does not.
+  *that device's own* in-basis ground truth (the calibration click, per the 2026-07-08 correction),
+  so it's self-relative and transfers even though the absolute latency does not.
 - **What does *not* generalize** is whether a given device's real bleed clears that floor — an
   empirical per-device question dominated by (a) speaker/mic hardware SNR (the Pixel 10's baseline RMS
   is a Pixel-10 number) and, the bigger wildcard, (b) whether the OEM actually honors the requested
@@ -406,7 +422,9 @@ covers only the capture-and-measure step for a single device.
 
 ## Next steps (Stage 2)
 
-In rough dependency order, picking up from "Implementation status" above:
+In rough dependency order, picking up from "Implementation status" above. (Item numbers are
+historical and preserved because other docs cite them — e.g. `test2-sweep-results.md` cites
+"item 10" — so the list is ordered by status/dependency, not numerically.)
 
 1. ~~**Wire NDK/CMake into `harness/build.gradle.kts`**~~ — done (see "Implementation status" above).
 2. ~~**Implement the full-duplex native engine + JNI bridge**~~ — code written and build-verified (see
@@ -453,9 +471,10 @@ In rough dependency order, picking up from "Implementation status" above:
      No change made -- a "measure before changing, the default was fine" outcome.
    - ~~**7c. Re-run and record the per-cell PSR + offset table**~~ -- done for the current correlator
      (`gcc_phat_bandlimited_results.csv`; offsets 61-151 ms, mean 97.2, std 17.5). It is **not yet
-     the Test 2 step 2 pass**: the ±2 ms-vs-ground-truth half of the bar still waits on Test 1's
-     loopback number (see "Sequencing dependencies"), and the 61-151 ms spread can't be confirmed as
-     benign per-capture start jitter (vs residual misalignment) without that ground truth.
+     the Test 2 step 2 pass**: the ±2 ms-vs-ground-truth half of the bar still lacks its referent —
+     now the in-basis calibration click of item 11, *not* Test 1's loopback number (see the
+     "Sequencing dependencies" correction) — and the 61-151 ms spread was since decomposed as
+     mostly benign harness start-jitter (item 10).
    - ~~**7d. Diagnose the lone below-6 dB cell and check whether a narrower band helps**~~ -- done
      (see `test2-sweep-results.md` "Edge-cell diagnosis"): `loud_far_facedown_none` is an HF-rattle
      edge case (loud+facedown into the resting surface), not an alignment failure -- its offset is
@@ -512,3 +531,23 @@ In rough dependency order, picking up from "Implementation status" above:
    finding 2.
 9. **Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`** so the
    desk-vs-wall geometry contamination that forced the redo cannot recur on a future sweep.
+11. **Embed an in-basis calibration click and re-judge the ±2ms bar against it (added 2026-07-08).**
+    Prepend a short high-SNR click (or click pair) at a known sample position in the bundled
+    reference track, detect its onset in each capture WAV (trivially accurate at high SNR, and
+    independent of the correlator under test), and use the click-derived offset as the per-capture
+    ground truth in the *same measurement basis* as the GCC-PHAT offset. This replaces the loopback
+    number as the ±2ms referent (see the "Sequencing dependencies" correction — wrong route, wrong
+    basis) and also decomposes the timestamp study's 5.5ms residual std into correlator error vs.
+    measurement quantization, which prototype-plan.md's budget reconciliation (thresholds point 4)
+    now needs. Requires regenerating the bundled asset and re-capturing at least the baseline cell
+    — the existing 36 WAVs carry no click. The loopback rig's remaining job is the independent
+    `getTimestamp` honesty check.
+12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
+    Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
+    ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,
+    but production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis
+    band. Pin the realistic ratio *before* running (measure a real performance take's RMS vs. the
+    baseline cell's bleed RMS); the baseline cell at that ratio must still clear PSR ≥ 6dB + ±2ms.
+    Re-measure the step-1 synthetic SNR floor with the band-limited pipeline + real beatbox
+    reference at the same time (the click-train −30dB floor did not transfer). Pure Python +
+    existing captures; no device time.

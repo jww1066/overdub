@@ -171,9 +171,22 @@ each hop was individually "aligned") is a genuinely open, untested question — 
 statistics-of-independent-errors question, not a data-format question.
 
 **Decision:** always forward raw/lossless per-track stems downstream (never a flattened mix) as a
-low-cost mitigation. The remaining open question — whether independent per-hop alignment noise
-compounds across a multi-hop chain — needs its own validation; see `prototype-plan.md`'s Test 3
-(proposed).
+low-cost mitigation.
+
+**Update (2026-07-08) — the open question is narrower than the paragraph above states.** Because
+every hop aligns against the *original* reference (a direct consequence of raw-stem forwarding),
+independent per-hop *noise* does not compound at all: each track's error vs. the shared reference
+is an independent draw, so the misalignment between any two tracks is the difference of two draws
+— essentially flat in chain length, not a random walk (a random walk would require each hop
+aligning to the *previous* track, which this design forbids). The genuinely open multi-hop risks
+are instead: (a) **per-device systematic bias** — each device's alignment mechanism can carry a
+fixed bias (the moto g(20) timestamp discrepancy is this class), and misalignment between
+heterogeneous devices is dominated by bias *differences* that no chain statistics average away;
+and (b) **interference growth** — hop k correlates against the original stem through the bleed of
+k−1 other stems plus the performer's own vocal, so per-hop error worsens with position in the
+chain. `prototype-plan.md`'s Test 3 was revised accordingly (2026-07-08) to model bias +
+position-dependent interference and to gate on the max *pairwise* offset, not a summed
+"cumulative" drift.
 
 ## Concurrency and threading model (added 2026-07-05)
 
@@ -242,7 +255,11 @@ a damaged file just as the typed variant can.
 
 ## Open items / explicitly deferred
 - Pre-roll buffer size and whether it's needed at all — deferred pending real-world data.
-- Reliability of cross-correlation alignment under low bleed SNR (loud/close-mic vocal vs. quiet bleed) — unverified, flagged as an empirical question.
+- Reliability of cross-correlation alignment under low bleed SNR (loud/close-mic vocal vs. quiet
+  bleed) — unverified by the 2026-07-05 sweep, which measured bleed against a quiet room only,
+  with no vocal present, in exactly the 500–4000 Hz speech band the correlator now uses.
+  **Scheduled (2026-07-08)** as Test 2 step 3: synthetic vocal-interference injection into the
+  real sweep captures — see `prototype-plan.md`.
 - Reliability of `AcousticEchoCanceler` and onset detection specifically on noisy phone-recorded music content — unverified in both cases.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

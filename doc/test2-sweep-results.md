@@ -231,7 +231,8 @@ bandpass+GCC-PHAT to all 36 cells:
 not yet trustworthy** (unconstrained argmax lands on wraparound/noise aliases that PSR still
 blesses). Per-cell CSV: `analysis/sweep_data/gcc_phat_bandlimited_results.csv` (gitignored;
 regeneratable). This is *not* the Test 2 step 2 pass -- the ±2 ms-vs-ground-truth bar also still
-waits on Test 1's loopback number.
+lacks its referent (per the 2026-07-08 correction: an in-basis calibration click, not Test 1's
+loopback number -- see the lag-window section below).
 
 ### Lag-window fix + PSR-exclusion re-check (2026-07-05, items 7a/7b)
 
@@ -258,6 +259,11 @@ waits on Test 1's loopback number.
   bar) needs Test 1's loopback ground truth, which doesn't exist yet. The 61-151 ms spread is
   plausibly per-capture playback/capture-start jitter (separate un-sample-synced recordings), but
   cannot be confirmed as such -- or ruled out as residual misalignment -- without that ground truth.
+  **Correction (2026-07-08):** the loopback number cannot be that ground truth -- it measures the
+  wired-USB route in a different measurement basis than these captures (see the ~201 ms constant in
+  the timestamp study below). The ±2 ms referent is now an **in-basis calibration click** embedded
+  in the reference track (`test2-step2-plan.md` Next steps item 11); the spread question itself was
+  since resolved by the timestamp decomposition below.
 
 ### Edge-cell diagnosis, band trade-off, and the start-jitter decomposition path (2026-07-05, item 7c follow-up)
 
@@ -293,9 +299,14 @@ It removes the one sub-6 dB cell but demotes 8 cells confident->minimum and -- d
 the **gate-critical baseline** cell `conversational_armslength_faceup_none` from 10.5 (confident) to
 9.0 (minimum). The demoted cells are the faceup/none ones whose real acoustic bleed carries
 correlated energy in 500-1000 Hz that 1000-4000 discards; no fixed band is optimal for both the
-acoustic-bleed regime and the rattle regime. **Decision: keep 500-4000.** The rattle cell failing
-the *confidence* margin (not the alignment) is exactly the kind of edge condition the plan documents
-as a UX constraint, not a test failure. Key by-product: the recovered-offset population stats are
+acoustic-bleed regime and the rattle regime. **Decision: keep 500-4000.** (Decision basis,
+clarified 2026-07-08: the band is carried by the *spectral diagnosis* -- the measured usable-SNR
+band is ~500-4000 Hz, speaker bass rolloff below it, mic-noise domination above it -- not by which
+band keeps the baseline cell "confident." The baseline demotion under 1000-4000 is corroboration
+that 500-1000 Hz carries real correlated bleed energy, not the selection criterion; picking a band
+by whether the gate cell stays above the line would be post-hoc fitting on the gate metric.) The
+rattle cell failing the *confidence* margin (not the alignment) is exactly the kind of edge
+condition the plan documents as a UX constraint, not a test failure. Key by-product: the recovered-offset population stats are
 *identical* between the two bands (min 61.1 / max 151.2 / mean 97.2 / std 17.5 ms), so band choice
 relabels PSR verdicts without moving the alignment -- reinforcing that PSR is a fragile label and the
 offset is the robust quantity.
@@ -357,7 +368,8 @@ Two things this establishes:
 2. **The hardware timestamps track that jitter and remove most of it.** Subtracting `stream_offset_ms`
    collapses the std from 13.4 ms to **5.5 ms (a 59% reduction)** -- the stream offset moves run-to-run
    *with* the GCC-PHAT offset, which is the sign the two share a cause. The remaining 5.5 ms (getTimestamp
-   granularity + band-limited-correlation quantization at these PSRs) is inside the 15 ms drift budget.
+   granularity + band-limited-correlation quantization at these PSRs) is inside the 15 ms drift budget
+   (but see the budget check below -- the margin is thinner than "inside the budget" reads).
 
 **Caveat -- a large fixed constant remains, and that is the loopback rig's job, not this study's.** The
 residual *mean* is +201 ms, not the ~sub-ms pure acoustic flight the naive derivation predicts. That
@@ -369,6 +381,16 @@ which turns on the std collapse. Confirming that constant is *honest* (that the 
 timestamps aren't lying) is precisely the independent loopback check, still pending the rig. So the
 verdict: the spread is substantially removable harness jitter (validated), on top of a fixed offset the
 loopback will later pin down.
+
+**Budget check (added 2026-07-08).** "Inside the 15 ms budget" undersells how tight this is. If the
+5.5 ms residual std were all real alignment error, a *single* overdub pair (two tracks, each with an
+independent ~5.5 ms-std error vs. the shared reference) has a pairwise-difference std of ~7.8 ms --
+95th percentile ~15 ms, the entire top-level ceiling consumed at one hop, before any chain. It also
+exceeds Test 1a's ≤5 ms allowance as a raw number. How much of the 5.5 ms is correlator/timestamp
+quantization (harness measurement noise) vs. real product-path error is therefore load-bearing; the
+in-basis calibration click (`test2-step2-plan.md` item 11) gives per-capture truth in the same
+measurement basis and is what decomposes it. See `prototype-plan.md` "Quantitative thresholds"
+point 4 for the full reconciliation.
 
 Study captures live in the gitignored `analysis/timestamp_study/` (durable record is this section).
 Not yet done: repeating the decomposition across *varied* physical cells (the cross-cell spread also
@@ -396,9 +418,19 @@ check.
   spread is per-session harness start-jitter, benign and removable. A fixed ~201 ms residual constant
   remains for the loopback rig to calibrate. Still to do: repeat across *varied* cells, and the loopback
   honesty check.
-- **Establish Test 1's loopback ground-truth latency** so the ±2 ms half of the pass bar can be
-  judged (blocked on the loopback rig; see `test2-step2-plan.md` "Sequencing dependencies"). Until
-  then the 97 ms offset is internally consistent but unverified against truth.
+- ~~**Establish Test 1's loopback ground-truth latency** so the ±2 ms half of the pass bar can be
+  judged~~ -- **superseded (2026-07-08): the loopback number cannot judge that bar** (wrong route --
+  wired USB, not speaker->mic -- and wrong measurement basis vs. these captures' ~201 ms constant).
+  Replaced by: **embed an in-basis calibration click in the reference track** and judge the GCC-PHAT
+  offset against the click-derived per-capture offset in the same WAV (`test2-step2-plan.md` Next
+  steps item 11). The rig's remaining job is the `getTimestamp` honesty check. Until either exists,
+  the 97 ms offset is internally consistent but unverified against truth.
+- **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
+  Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed ratios
+  and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
+  production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis band. Pin
+  the realistic ratio *before* running; the baseline cell at that ratio must still clear the bar.
+  Pure Python + existing captures; no device time.
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).
