@@ -536,11 +536,16 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
    gain-ratio compression per orientation (subtract noise floor in the power domain, fit RMS vs
    gain, separate device-level from coupling-path compression) -- see test2-sweep-results.md
    finding 2.
-9. **Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`** so the
-   desk-vs-wall geometry contamination that forced the redo cannot recur on a future sweep.
-   **Sequencing note (2026-07-08): do this before item 11's 36-cell re-capture** — the re-capture
-   is unavoidable anyway (the old WAVs carry no click), so it should be the first sweep whose
-   sidecars record the geometry.
+9. ~~**Add a `reflector_geometry` (or `setup_notes`) field to `ConditionMetadata`**~~ — **done
+   (2026-07-08, code side).** Nullable `reflector_geometry` flows instrumentation-arg →
+   `ConditionSweepTest` → `CaptureEngine.runCapture` → sidecar; null means *unknown* (honest for
+   legacy sidecars and manual runs — never defaulted to a claimed geometry the operator didn't
+   assert; a missing arg logs a NOTE). `run_sweep_cell.sh` asserts the canonical protocol value
+   `wall` by default, overridable via `REFLECTOR_GEOMETRY=<label>` (documented in its header, so
+   a desk-below-style deviation must be stated to be recorded). Tier-1 tested (round-trip,
+   omitted-when-null, legacy-sidecar-decodes-as-unknown); `gradlew test assembleDebug` +
+   `assembleDebugAndroidTest` green. On-device plumbing check folds into the first cell of
+   item 11's re-capture (metadata-only change, no audio-path behavior touched).
 11. **Embed an in-basis calibration click and re-judge the ±2ms bar against it (added 2026-07-08).**
     Prepend a short high-SNR click (or click pair) at a known sample position in the bundled
     reference track, detect its onset in each capture WAV (trivially accurate at high SNR, and

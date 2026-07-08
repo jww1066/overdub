@@ -87,10 +87,28 @@ class ConditionSweepTest {
         val arg = InstrumentationRegistry.getArguments().getString("condition")
         val condition = resolveCondition(arg)
 
-        Log.i(TAG, "=== sweeping ${condition.conditionId} (${describe(condition)}) ===")
+        // Item 9: record the physical geometry the distance axis was measured against, so a
+        // desk-vs-wall style contamination is readable from the sidecar instead of silent. A missing
+        // argument is recorded as null (= unknown) and warned about — never defaulted to a claimed
+        // geometry the operator didn't assert. run_sweep_cell.sh passes the canonical "wall".
+        val reflectorGeometry =
+            InstrumentationRegistry.getArguments().getString("reflector_geometry")?.takeIf { it.isNotBlank() }
+        if (reflectorGeometry == null) {
+            Log.w(
+                TAG,
+                "NOTE no `reflector_geometry` argument — sidecar will record it as unknown; " +
+                    "pass -e reflector_geometry <label> (canonical sweep value: wall)",
+            )
+        }
+
+        Log.i(
+            TAG,
+            "=== sweeping ${condition.conditionId} (${describe(condition)}) " +
+                "geometry=${reflectorGeometry ?: "UNKNOWN"} ===",
+        )
         Log.i(TAG, "output dir (adb pull this): ${outputDir.absolutePath}")
 
-        val result = engine.runCapture(condition, outputDir)
+        val result = engine.runCapture(condition, outputDir, reflectorGeometry = reflectorGeometry)
 
         Log.i(
             TAG,

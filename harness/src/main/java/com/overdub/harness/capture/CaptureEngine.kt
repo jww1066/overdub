@@ -111,11 +111,15 @@ class CaptureEngine(private val context: Context) {
      * [reference] defaults to the bundled asset; the Tier-2 instrumented tests inject a short
      * synthetic buffer so a capture completes in ~1s instead of the asset's 15s, which is what makes
      * the back-to-back-runs leak test tractable. Production callers pass nothing.
+     *
+     * [reflectorGeometry] labels the physical geometry of this run (item 9; canonical sweep value
+     * "wall"); null is recorded as-is, meaning *unknown*, never defaulted to a claimed geometry.
      */
     fun runCapture(
         condition: Condition,
         outputDir: File,
         reference: com.overdub.harness.wav.WavAudio = loadReferenceTrack(),
+        reflectorGeometry: String? = null,
     ): CaptureResult {
         outputDir.mkdirs()
 
@@ -235,6 +239,7 @@ class CaptureEngine(private val context: Context) {
                 inputTimestampNanos = streamTimestamps?.inputNanos,
                 streamOffsetFrames = streamOffset?.frames,
                 streamOffsetMs = streamOffset?.ms,
+                reflectorGeometry = reflectorGeometry,
             )
             jsonFile.writeText(metadata.toJson())
 

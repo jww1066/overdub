@@ -24,6 +24,7 @@ class ConditionMetadataTest {
         inputTimestampNanos = 10_000_000_000L,
         streamOffsetFrames = -4800.0,
         streamOffsetMs = -100.0,
+        reflectorGeometry = "wall",
     )
 
     @Test
@@ -44,6 +45,7 @@ class ConditionMetadataTest {
             inputTimestampNanos = null,
             streamOffsetFrames = null,
             streamOffsetMs = null,
+            reflectorGeometry = null,
         )
         val json = original.toJson()
         val decoded = conditionMetadataFromJson(json)
@@ -51,6 +53,16 @@ class ConditionMetadataTest {
         assertEquals(null, decoded.xrunCount)
         assertEquals(null, decoded.deviceModel)
         assertEquals(null, decoded.streamOffsetMs)
+        assertEquals(null, decoded.reflectorGeometry)
+    }
+
+    @Test
+    fun `legacy sidecar without reflector_geometry decodes as unknown`() {
+        // The 2026-07-05 sweep's sidecars predate the field (item 9); they must decode with
+        // reflectorGeometry == null (unknown), not fail or invent a geometry.
+        val legacyJson = sample().copy(reflectorGeometry = null).toJson()
+        assertEquals(false, legacyJson.contains("reflector_geometry"))
+        assertEquals(null, conditionMetadataFromJson(legacyJson).reflectorGeometry)
     }
 
     @Test
@@ -77,5 +89,6 @@ class ConditionMetadataTest {
         assertEquals(true, json.contains("\"stream_offset_ms\""))
         assertEquals(true, json.contains("\"output_timestamp_frames\""))
         assertEquals(true, json.contains("\"input_timestamp_nanos\""))
+        assertEquals(true, json.contains("\"reflector_geometry\""))
     }
 }

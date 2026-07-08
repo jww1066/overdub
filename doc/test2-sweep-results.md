@@ -605,9 +605,12 @@ judgment.
 - Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression).
-- Add a `reflector_geometry` (or free-text `setup_notes`) field to `ConditionMetadata` so the
+- ~~Add a `reflector_geometry` (or free-text `setup_notes`) field to `ConditionMetadata` so the
   class of silent contamination that forced the redo (desk-below vs wall geometry) cannot recur
-  on a future sweep -- see "Discarded captures" below.
+  on a future sweep~~ -- **done (2026-07-08; test2-step2-plan.md item 9).** Nullable
+  `reflector_geometry` in the sidecar (null = unknown, never a defaulted claim);
+  `run_sweep_cell.sh` passes the canonical `wall`, overridable via `REFLECTOR_GEOMETRY=<label>`.
+  See "Discarded captures" below for the incident this closes out.
 
 ## Discarded captures (do NOT feed into analysis)
 

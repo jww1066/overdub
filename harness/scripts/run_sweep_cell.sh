@@ -12,11 +12,20 @@
 # overflow / non-speaker route) is the reposition-and-retry signal; a sub-floor RMS
 # is logged as a NOTE, not a failure.
 #
+# The sidecar records the physical geometry via `reflector_geometry` (test2-step2-plan.md item 9).
+# This script asserts the CANONICAL sweep protocol -- "wall" (phone on a stand/pad in free air,
+# tape-measured to the wall; test2-sweep-results.md "Run conditions") -- by default. If your setup
+# deviates (e.g. the discarded desk-below geometry), you MUST override it or the sidecar will lie:
+#
+#   REFLECTOR_GEOMETRY=desk_below harness/scripts/run_sweep_cell.sh <condition_id>
+#
 # Usage:
 #   harness/scripts/run_sweep_cell.sh <condition_id>
 #   harness/scripts/run_sweep_cell.sh conversational_armslength_faceup_none
 #   harness/scripts/run_sweep_cell.sh --list      # dump the 36 valid ids
 set -uo pipefail
+
+GEOMETRY="${REFLECTOR_GEOMETRY:-wall}"
 
 PKG=com.overdub.harness
 RUNNER="$PKG.test/androidx.test.runner.AndroidJUnitRunner"
@@ -35,9 +44,10 @@ if [[ -z "$COND" ]]; then
     exit 2
 fi
 
-echo ">>> cell: $COND"
+echo ">>> cell: $COND  (reflector_geometry=$GEOMETRY)"
 adb logcat -c
-adb shell am instrument -w -e condition "$COND" -e class "$CLASS#sweepOneCondition" "$RUNNER"
+adb shell am instrument -w -e condition "$COND" -e reflector_geometry "$GEOMETRY" \
+    -e class "$CLASS#sweepOneCondition" "$RUNNER"
 INSTR_STATUS=$?
 
 echo "--- OverdubSweep logcat ---"

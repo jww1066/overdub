@@ -22,6 +22,13 @@ import kotlinx.serialization.json.Json
  * GCC-PHAT offset offline decomposes the 61-151 ms cross-cell spread into harness start-jitter
  * (removable) vs real alignment error. The raw `*TimestampFrames`/`*TimestampNanos` pairs are logged
  * so the derivation is auditable and re-derivable, not just the collapsed scalar.
+ *
+ * [reflectorGeometry] (test2-step2-plan.md item 9) records the physical geometry the distance axis
+ * was measured against (canonical sweep value: "wall" — phone on a stand/pad in free air, tape-
+ * measured to the wall; the discarded 2026-07-05 cells would have read "desk_below"). Null means
+ * *unknown/not recorded* — honest for legacy captures and manual runs, and distinguishable from a
+ * claimed geometry, which is the whole point: the desk-vs-wall contamination that forced the sweep
+ * redo was silent precisely because sidecars carried no geometry field at all.
  */
 @Serializable
 data class ConditionMetadata(
@@ -43,6 +50,7 @@ data class ConditionMetadata(
     @SerialName("input_timestamp_nanos") val inputTimestampNanos: Long? = null,
     @SerialName("stream_offset_frames") val streamOffsetFrames: Double? = null,
     @SerialName("stream_offset_ms") val streamOffsetMs: Double? = null,
+    @SerialName("reflector_geometry") val reflectorGeometry: String? = null,
 )
 
 private val json = Json { ignoreUnknownKeys = true }
