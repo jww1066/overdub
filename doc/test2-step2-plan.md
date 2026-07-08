@@ -620,16 +620,20 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
       (3) `loud_far_facedown_none` (the HF-rattle cell — the contaminated-peak failure mode,
       whose old "band-robust 87.10 ms" was an alias, so its true alignment is unknown).
       Judge everything with `run_click_gated_sweep.py`.
-      **Status (2026-07-08): (1) done — 9/9 PASS the ±2 ms click gate; correlator error mean
-      −1.18 / std 0.25 / max 1.35 ms (the budget error-std); basis residual −15.1 ms stable on
-      8/9 runs with one ~40 ms `getTimestamp` outlier (a Test 1a tail-risk finding); item-9
-      plumbing check passed after catching a stale test APK. Full write-up:
-      `test2-sweep-results.md` "Session A re-capture." (2) and (3) still pending — repositioning
-      to the ~2 m position was in progress when the session paused.**
+      **Status (2026-07-08): Session A COMPLETE — 11/11 PASS (baseline ×9 + both extremes).**
+      (1) 9/9 PASS the ±2 ms click gate; correlator error mean −1.18 / std 0.25 / max 1.35 ms
+      (the budget error-std); basis residual −15.1 ms stable on 8/9 runs with one ~40 ms
+      `getTimestamp` outlier (a Test 1a tail-risk finding); item-9 plumbing check passed after
+      catching a stale test APK. (2) min-bleed cell PASS at −1.21 ms (click quality *above*
+      baseline — the SNR failure mode did not materialize). (3) rattle cell PASS at −0.46 ms,
+      the session's best (the contaminated-peak mode did not materialize; its true offset is
+      −120.90 ms, finally replacing the alias-era 87.10). Full write-up:
+      `test2-sweep-results.md` "Session A re-capture."
     - **Session B (the remaining ~9 arrangements → the full 36-cell map), gated on A:** if A's
       extremes and baseline pass cleanly, B is confirmatory — run it when convenient to restore
       the per-cell alignment/UX-constraint map with an honest gate; if an extreme fails, B is
       *needed*, to locate the boundary of where alignment fails for the UX-constraint map.
+      **Outcome (2026-07-08): A passed cleanly on all cells, so B is confirmatory.**
 12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
     Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
     ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,

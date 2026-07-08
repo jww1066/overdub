@@ -601,9 +601,28 @@ diagnosed by the missing `geometry=` segment in the on-device sweep log line. Bo
 rebuilt and reinstalled; the stale capture is excluded from the analysis set (all 9 analyzed
 captures are fresh-APK). Item 9 is now verified on-device.
 
-**Still open in Session A:** the two extreme cells — `quiet_far_faceup_pocketed` (min-bleed / SNR
-failure mode) and `loud_far_facedown_none` (HF-rattle / contaminated-peak failure mode) — pending
-operator repositioning to the ~2 m position. Session B stays gated on their outcome.
+**Session A completed (2026-07-08, same session): both extreme cells also PASS — 11/11 total.**
+
+| cell | rms | click q (dB) | true offset (ms) | err vs click (ms) | strm−clk (ms) |
+|---|---|---|---|---|---|
+| `quiet_far_faceup_pocketed` (min bleed) | 1652 | 38.8 | −63.23 | **−1.21 PASS** | −15.15 |
+| `loud_far_facedown_none` (HF rattle) | 10429 | 42.7 | −120.90 | **−0.46 PASS** | −15.20 |
+
+Neither position-dependent failure mode materialized under the anchored gate:
+
+- **SNR mode:** at minimum bleed (quiet, 2 m, fabric) the click quality was *higher* than
+  baseline (38.8 vs 33–37 dB) and the correlator error indistinguishable from it — the usable
+  band carries plenty of signal even at the matrix's weakest cell.
+- **Contaminated-peak mode:** the rattle cell — whose alias-era "band-robust 87.10 ms" left its
+  true alignment genuinely unknown — posted the session's best error (−0.46 ms) and strongest
+  click (42.7 dB, loud helps the click too). The HF rattle that wrecked its full-band PSR does
+  not perturb the click-anchored band-limited peak.
+- Both basis residuals sit in the −15.1/−15.2 ms cluster, further isolating the +24.5 ms
+  baseline-repeat outlier as a one-off `getTimestamp` glitch, not a position effect.
+
+Final Session A population: 11/11 PASS, correlator error mean −1.12 ms, std 0.31 ms,
+max |err| 1.35 ms. **Per the staged protocol, Session B (the remaining ~9 arrangements → full
+36-cell map) is now confirmatory, not required for the verdict — run when convenient.**
 
 ## Next steps (post-sweep)
 
@@ -647,8 +666,9 @@ operator repositioning to the ~2 m position. Session B stays gated on their outc
   2026-07-08) — Session A: baseline × ~9 repeats + the min-bleed and rattle extreme cells
   (verdict, budget error-std, basis-residual stability, item-9 plumbing check); Session B: the
   remaining arrangements for the full 36-cell map, gated on A's outcome. Protocol + rationale:
-  `test2-step2-plan.md` item 11 (c). **Session A's baseline half ran 2026-07-08: 9/9 PASS, err
-  std 0.25 ms — see "Session A re-capture" above. The two extreme cells + Session B remain.**
+  `test2-step2-plan.md` item 11 (c). **Session A completed 2026-07-08: 11/11 PASS (baseline ×9
+  + both extremes), err std 0.31 ms — see "Session A re-capture" above. Session B (full map) is
+  now confirmatory-only.**
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
