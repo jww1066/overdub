@@ -23,6 +23,7 @@ from overdub_analysis import (
     broadband_click_train,
     delay,
     gcc_phat,
+    gcc_phat_correlation,
 )
 
 FS = 48_000.0
@@ -223,3 +224,51 @@ def test_lag_window_selecting_nothing_raises() -> None:
     mic = delay(ref, 100)
     with pytest.raises(ValueError):
         gcc_phat(ref, mic, fs=FS, lag_window=(10**9, 10**9 + 1))
+
+
+# ---------------------------------------------------------------------------
+# Raw correlation vector (peak-competition diagnostics)
+# ---------------------------------------------------------------------------
+
+
+def test_correlation_global_argmax_matches_gcc_phat() -> None:
+    """The exported raw vector's argmax is exactly what unconstrained gcc_phat returns."""
+    ref = _reference()
+    d = 321
+    mic = add_noise_at_snr(delay(ref, d), HIGH_SNR_DB, np.random.default_rng(RNG_SEED))
+
+    gcc, offset_all = gcc_phat_correlation(ref, mic)
+    result = gcc_phat(ref, mic, fs=FS)
+
+    assert gcc.shape == offset_all.shape
+    assert int(offset_all[np.argmax(gcc)]) == result.offset_samples
+    assert float(gcc[np.argmax(gcc)]) == pytest.approx(float(gcc[result.lag_index]))
+
+
+def test_correlation_exposes_competing_peak() -> None:
+    """A mic that is a mix of two delayed copies shows *both* peaks in the raw vector.
+
+    This is the diagnostic use case: an alias/echo peak that gcc_phat's single
+    argmax would hide is visible (and rankable) in the full correlation.
+    """
+    ref = _reference()
+    d_main, d_echo = 150, 900
+    main = delay(ref, d_main)
+    echo = delay(ref, d_echo)
+    main = np.concatenate([main, np.zeros(echo.size - main.size)])
+    mic = main + 0.6 * echo
+
+    gcc, offset_all = gcc_phat_correlation(ref, mic)
+
+    def value_at(offset: int) -> float:
+        return float(gcc[np.nonzero(offset_all == offset)[0][0]])
+
+    floor = float(np.median(np.abs(gcc)))
+    assert value_at(d_main) > 10 * floor
+    assert value_at(d_echo) > 10 * floor
+    assert value_at(d_main) > value_at(d_echo)
+
+
+def test_correlation_empty_input_raises() -> None:
+    with pytest.raises(ValueError):
+        gcc_phat_correlation(np.array([]), np.array([1.0, 2.0]))

@@ -84,7 +84,11 @@ results:
    alias-vs-true-peak relationship, not yet directly the product's per-hop error. Because the
    alias sits at a near-fixed offset from the truth, the *std* (variance) carries over to the
    true peak, so the budget arithmetic is not invalidated — but the real correlator-error number
-   must be re-measured against the click before this budget is trusted.
+   must be re-measured against the click before this budget is trusted. **First such measurement
+   (2026-07-08, click-anchored gate on the baseline capture): correlator-vs-click error
+   -0.54 ms** — well inside ±2 ms, an encouraging sign that most of the 5.5 ms residual std is
+   harness/quantization rather than correlator error; the 36-cell click-gated re-run provides
+   the population number.
 
 ## Test 1 — Latency harness (continuous-buffer stability)
 
@@ -273,8 +277,8 @@ stated here. Results remain Pixel-10-specific (see "Cross-device generalization"
 family — including the +97 ms "population mean" and the edge cell's "band-robust" +87 ms — are
 ~+187 ms beat-period *aliases* of negative true harness-basis offsets, not correct alignments. The
 "confident" PSR verdicts describe sharp alias peaks. The calibration click (matched filter,
-independent of the correlator) measured the true baseline offset at -80.98 ms; GCC-PHAT reported
-+107.12 ms, ~188 ms off — essentially one reference beat period. So PSR ≥ 6 dB + a (0, 300 ms)
+independent of the correlator) measured the true baseline offset at -79.62 ms; GCC-PHAT reported
++107.12 ms, ~187 ms off — essentially one reference beat period. So PSR ≥ 6 dB + a (0, 300 ms)
 positivity lag window is *not* a sufficient alignment gate: both bless the alias (the true offset
 is negative in the harness basis, so the "plausible positive" window pointed the wrong way, and
 the beat-period peak is a real sharp feature of the reference's autocorrelation). The honest gate
@@ -329,10 +333,17 @@ reference asset and re-capturing at least the baseline cell — the existing 36 
 chirp at sample 9600), and a baseline cell was re-captured on the Pixel 10. The cross-check
 immediately paid off — it exposed that the prior +97ms family are +187ms beat-period aliases, not
 alignments (see the implementation-status resolution above and `test2-sweep-results.md`).
-Remaining: first decide the alias-rejection remedy (negative-admitting lag window vs.
-trim-to-beatbox re-basis) on the existing click-bearing capture — pure Python, no device; see
-`test2-step2-plan.md` item 11 — then re-run the full 36-cell sweep against the click-bearing
-reference and re-gate on `|gcc_phat_offset - click_offset| ≤ 2ms`, not PSR + a positivity window.
+The alias-rejection remedy was then decided on that same capture (2026-07-08,
+`test2-sweep-results.md` "Alias-gate remedy decision"): the alias peak is genuinely ~12 dB larger
+than the true peak in the band-limited correlation, so no wide lag window — signed or not — can
+reject it; the gate is a click-anchored ±90 ms window (narrower than half the ~187 ms beat
+period, so a one-beat alias is excluded by construction) plus
+`|gcc_phat_offset - click_offset| ≤ 2ms`, with PSR demoted to a diagnostic (the true acoustic
+peak is a multipath cluster that reads ~0 dB PSR even when correct). A
+stream-timestamp-anchored window recovered the same true offset, validating the product-shaped
+mechanism (the product has no click, but has `getTimestamp`). Pipeline:
+`analysis/scripts/run_click_gated_sweep.py`. Remaining: the `reflector_geometry` metadata field,
+then re-run the full 36-cell sweep against the click-bearing reference through that script.
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 

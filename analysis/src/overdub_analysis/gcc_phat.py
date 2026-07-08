@@ -33,7 +33,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["GccPhatResult", "gcc_phat"]
+__all__ = ["GccPhatResult", "gcc_phat", "gcc_phat_correlation"]
 
 
 @dataclass(frozen=True)
@@ -75,6 +75,42 @@ def _cross_spectrum_phat(
     cross = X * np.conj(Y)
     weighted = cross / (np.abs(cross) + eps)
     return np.real(np.fft.ifft(weighted))
+
+
+def gcc_phat_correlation(
+    reference: np.ndarray,
+    mic: np.ndarray,
+    *,
+    eps: float = 1e-12,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Full PHAT-weighted cross-correlation with the offset each index maps to.
+
+    Returns ``(gcc, offset_all)``: ``gcc[i]`` is the correlation value whose
+    recovered offset (same sign convention as ``gcc_phat``: positive = mic
+    lags reference) is ``offset_all[i]``. This is the raw vector ``gcc_phat``
+    takes its argmax over; it exists so diagnostics can inspect *competing*
+    peaks — e.g. a beat-period alias of a rhythmic reference vs. the true
+    alignment peak — rather than only seeing the single winner.
+    """
+    x = np.asarray(reference, dtype=np.float64).ravel()
+    y = np.asarray(mic, dtype=np.float64).ravel()
+    if x.size == 0 or y.size == 0:
+        raise ValueError("reference and mic must be non-empty")
+
+    # FFT length: next power of two ≥ full cross-correlation length, so the
+    # circular correlation is equivalent to a linear one (no wrap-around).
+    nfft = 1 << int(np.ceil(np.log2(x.size + y.size - 1)))
+
+    gcc = _cross_spectrum_phat(x, y, nfft, eps)
+
+    # Offset (samples) for every raw index, vectorized. Indices above nfft//2
+    # represent negative lags under the periodic FFT convention. With the
+    # cross-spectrum X*conj(Y), gcc[m] = Σ_n x[n]·y[n−m], which peaks at
+    # m = −d when mic[n] = reference[n−d]; the sign flip recovers d.
+    idx = np.arange(nfft)
+    signed_lag_all = np.where(idx > nfft // 2, idx - nfft, idx)
+    offset_all = -signed_lag_all
+    return gcc, offset_all
 
 
 def gcc_phat(
@@ -123,26 +159,11 @@ def gcc_phat(
     -------
     GccPhatResult
     """
-    x = np.asarray(reference, dtype=np.float64).ravel()
-    y = np.asarray(mic, dtype=np.float64).ravel()
-    if x.size == 0 or y.size == 0:
-        raise ValueError("reference and mic must be non-empty")
     if psr_exclusion < 0:
         raise ValueError("psr_exclusion must be >= 0")
 
-    # FFT length: next power of two ≥ full cross-correlation length, so the
-    # circular correlation is equivalent to a linear one (no wrap-around).
-    nfft = 1 << int(np.ceil(np.log2(x.size + y.size - 1)))
-
-    gcc = _cross_spectrum_phat(x, y, nfft, eps)
-
-    # Offset (samples) for every raw index, vectorized. Indices above nfft//2
-    # represent negative lags under the periodic FFT convention. With the
-    # cross-spectrum X*conj(Y), gcc[m] = Σ_n x[n]·y[n−m], which peaks at
-    # m = −d when mic[n] = reference[n−d]; the sign flip recovers d.
-    idx = np.arange(nfft)
-    signed_lag_all = np.where(idx > nfft // 2, idx - nfft, idx)
-    offset_all = -signed_lag_all
+    gcc, offset_all = gcc_phat_correlation(reference, mic, eps=eps)
+    nfft = gcc.size
 
     if lag_window is not None:
         candidate_mask = _lag_window_mask(offset_all, lag_window)

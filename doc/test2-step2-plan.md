@@ -573,21 +573,26 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     builtin_speaker, 16.25s), pulled to `analysis/click_check/`, and run through
     `analysis/scripts/detect_calibration_click.py`. **The click survived the real speaker→mic path
     and the cross-check immediately paid off** — it exposed that the band-limited GCC-PHAT offset
-    (+107.12 ms, "confident" PSR 12.1 dB) is a **+187 ms beat-period alias** of the true -80.98 ms
-    harness-basis offset (click-measured, quality 16.7 dB): a discrepancy of ~188 ms, essentially
+    (+107.12 ms, "confident" PSR 12.1 dB) is a **+187 ms beat-period alias** of the true -79.62 ms
+    harness-basis offset (click-measured; the -80.98 figure originally recorded here was a
+    transcription of the full-band GCC value — see the corrected cross-check table in
+    `test2-sweep-results.md`): a discrepancy of ~187 ms, essentially
     one reference beat period. This overturns the prior +97 ms "population mean" and the whole
     +61..+151 ms family as correct alignments; see `test2-sweep-results.md` "Calibration click
     cross-check" for the full analysis and what survives. A reference self-similarity mapper,
     `analysis/scripts/check_reference_periodicity.py`, was added (plain band-limited
     autocorrelation — PHAT-of-self is a perfect impulse and hides the beat-period peak a
-    correlator can alias onto). Remaining, in order: **(a)** decide the alias-rejection remedy on
-    the existing `analysis/click_check/` capture (pure Python, no device) — does a
-    negative-admitting lag window let the correlator find the true -81 ms peak, or does the
-    beat-period alias peak genuinely dominate, forcing the trim-to-beatbox re-basis? — and build
-    the click-gated sweep pipeline around whichever wins; **(b)** land item 9's
-    `reflector_geometry` field so the re-capture records it; **(c)** re-run the full 36-cell sweep
-    against the click-bearing reference and re-gate on
-    `|gcc_phat_offset - click_offset| ≤ 2ms`, not PSR + a positivity window.
+    correlator can alias onto). Remaining, in order: ~~**(a)** decide the alias-rejection remedy on
+    the existing `analysis/click_check/` capture (pure Python, no device)~~ — **done (2026-07-08,
+    `test2-sweep-results.md` "Alias-gate remedy decision"): the alias peak is ~12 dB larger than
+    the true peak, so no wide lag window (signed or not) can win — the gate is a click-anchored
+    ±90 ms window (< half the ~187 ms beat period) + `|gcc - click| ≤ 2ms`, PSR diagnostic-only
+    (the true acoustic peak is a multipath cluster that reads ~0 dB PSR even when correct).
+    Pipeline: `analysis/scripts/run_click_gated_sweep.py` (smoke-tested 1/1 PASS, err -0.54 ms);
+    the stream-timestamp-anchored variant also passed, validating the product-shaped mechanism.**
+    **(b)** land item 9's `reflector_geometry` field so the re-capture records it; **(c)** re-run
+    the full 36-cell sweep against the click-bearing reference through
+    `run_click_gated_sweep.py`.
 12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
     Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
     ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,

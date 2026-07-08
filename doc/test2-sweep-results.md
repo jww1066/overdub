@@ -272,7 +272,7 @@ loopback number -- see the lag-window section below).
   the timestamp study below). The ±2 ms referent is now an **in-basis calibration click** embedded
   in the reference track (`test2-step2-plan.md` Next steps item 11); the spread question itself was
   since resolved by the timestamp decomposition below. **Resolved 2026-07-08 (cross-check below):
-  97 ms is NOT the round-trip — it is a +187 ms beat-period alias of a ~-81 ms true offset. Test 2
+  97 ms is NOT the round-trip — it is a +187 ms beat-period alias of a ~-80 ms true offset. Test 2
   step 2 is not passed; this "what still blocks" item is moot — the blocker was never just the
   missing loopback, it was that the offsets were aliases all along.**
 
@@ -425,11 +425,11 @@ verdicts describe sharp alias peaks, not the true peak.
 
 | Instrument | recovered offset | notes |
 |---|---|---|
-| Calibration click (matched filter) | **-80.98 ms** | onset 5778 vs reference click 9600; quality 16.7 dB (unwindowed), 5.1 dB in the (0,300) onset window |
+| Calibration click (matched filter) | **-79.62 ms** | onset 5778 vs reference click 9600 (= -3822 samples); quality 16.7 dB (unwindowed), 5.1 dB in the (0,300) onset window. *Corrected 2026-07-08: originally transcribed as -80.98 ms, which is actually the full-band GCC-PHAT offset from the same CSV, not the click's — the onset arithmetic (5778-9600)/48 = -79.62 is the click truth.* |
 | Band-limited GCC-PHAT (500-4000 Hz, unconstrained) | +107.12 ms | PSR 12.1 dB ("confident") |
 | Band-limited GCC-PHAT (lag window 0-300 ms, the sweep default) | +107.12 ms | same — the window does *not* reject it |
 
-The click and the correlator disagree by **+188.1 ms** — essentially exactly one beat period (the
+The click and the correlator disagree by **+186.7 ms** — essentially exactly one beat period (the
 reference's measured inter-onset interval is ~187 ms, `analysis/scripts/check_reference_periodicity.py`).
 So the GCC-PHAT argmax is locking onto a **beat-period self-similarity peak** of the reference, one
 bar/beat displaced from the true alignment, not onto the true round-trip peak.
@@ -494,6 +494,66 @@ periodicity, so the plain autocorrelation is what surfaces the beat-period peak 
 alias onto). All gitignored captures regeneratable; scripts and
 the `calibration_click` library are committed.
 
+### Alias-gate remedy decision: anchored window — the alias peak genuinely dominates (2026-07-08, item 11a)
+
+Before burning an operator session on the 36-cell re-capture, the two candidate remedies from the
+cross-check were decided against the existing `analysis/click_check/` capture with a purpose-built
+experiment (`analysis/scripts/evaluate_alias_gate.py`, using a new `gcc_phat_correlation` library
+export that exposes the raw correlation vector so *competing* peaks are measurable, not just the
+argmax winner). Results, one capture, click truth **-79.62 ms** (onset 5778, quality 35.2 dB in
+the signed search window):
+
+| Variant (band-limited 500-4000 Hz) | offset | err vs click | verdict |
+|---|---|---|---|
+| unconstrained | +107.12 ms | +186.75 | FAIL |
+| positive (0, 300 ms) window — the old gate | +107.12 ms | +186.75 | FAIL |
+| **signed (-300, +300 ms) window — remedy A** | **+107.12 ms** | **+186.75** | **FAIL** |
+| **click-anchored ±90 ms window — remedy B** | **-80.17 ms** | **-0.54** | **PASS** |
+| stream-timestamp-anchored ±90 ms (product-shaped) | -80.17 ms | -0.54 | PASS |
+| trimmed to beatbox-only, signed ±300 ms | -80.17 ms | -0.54 | PASS (fragile — see below) |
+
+Four findings:
+
+1. **Remedy A (admit negative offsets) is dead: the beat-period alias peak is genuinely ~12 dB
+   LARGER than the true peak in the band-limited correlation** (raw-GCC peak ranking: alias
+   +107.12 ms at 0 dB reference; true peak -80.17 ms at **-12.09 dB**; next competitor -43.8 dB).
+   The failure was never that the window pointed the wrong way — pointing it correctly still
+   loses the argmax. No wide window, signed or not, can reject a peak that outranks the truth.
+2. **Remedy B (anchored window narrower than half the ~187 ms beat period) recovers the true
+   alignment**: -80.17 ms vs. click truth -79.62 ms, error **-0.54 ms** — inside the ±2 ms bar.
+   The alias is excluded *by construction* (it sits one beat away, outside any ±90 ms window),
+   so the correlator only has to win locally, which it does.
+3. **The stream-timestamp anchor works too, and it is the product-shaped one.** Anchoring on the
+   sidecar's `getTimestamp`-derived `stream_offset_ms` (-94.79 ms; anchor error vs. click
+   -15.16 ms, far inside the ±90 ms half-width) recovers the same -80.17 ms. The product has no
+   calibration click, but it *does* have its own stream timestamps — so "anchor the correlator
+   search on the timestamp-derived offset, then refine" is a viable product mechanism, validated
+   shape-wise here. By-product: `stream - click = -15.16 ms` is now a *direct measurement* of the
+   per-capture measurement-basis residual that the timestamp study could previously only infer as
+   (~201 ms residual − ~187 ms alias). The trim-to-beatbox variant also passed, but only because
+   the true peak outranked the alias by **0.4 dB** after trimming — a coin flip, not a remedy;
+   recorded as corroboration that the chirp's own energy isn't what decides the ranking.
+4. **PSR cannot be part of the gate at all — the true acoustic peak is a multipath cluster, not
+   an impulse.** Peak-shape measurement (same script): the alias peak is impulse-sharp (0/-0.3 dB
+   over two samples, then -9 dB), but the *true* peak has near-equal sub-peaks at 0 and +6
+   samples (~±0.13 ms spread — reverberant/multipath arrival, harmless vs. a 2 ms bar). At the
+   2-sample `psr_exclusion` the true peak's own cluster counts as "sidelobe," so PSR reads
+   **~0 dB at a perfectly correct alignment** (and still only 0.6 dB at a 16-sample exclusion).
+   The earlier "PHAT keeps the peak impulse-sharp" measurement (item 7b) was made on the
+   *alias*, which is a self-similarity feature of the clean reference — sharp; the genuinely
+   acoustic peak is not. PSR is demoted to a diagnostic column; the gate is
+   `|gcc_phat_offset - click_offset| <= 2 ms`, alone.
+
+**Pipeline built:** `analysis/scripts/run_click_gated_sweep.py` — per capture: signed-window
+matched-filter click detection (quality-floor-gated, so legacy click-less captures report
+`no-click` instead of a fake verdict), click-anchored ±90 ms band-limited GCC-PHAT, the ±2 ms
+gate, diagnostic PSR at 16-sample exclusion, and `stream_minus_click_ms` for the basis-residual
+population. Smoke-tested on the click_check capture: 1/1 PASS, err -0.54 ms. The
+`detect_calibration_click.py` default search window was also fixed from positive-only to signed
+(the same wrong-sign prior the cross-check exposed in the sweep gate). The 36-cell re-capture
+(after item 9's `reflector_geometry` field lands) runs through this script as the Test 2 step 2
+judgment.
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
@@ -525,22 +585,15 @@ the `calibration_click` library are committed.
   the 97 ms offset (and the whole +61..+151 ms family) is not the truth — it is a +187 ms
   beat-period alias of a negative true offset; see "Calibration click cross-check" above. Test 2
   step 2 is NOT passed.**
-- **Re-gate GCC-PHAT on the calibration click, not on PSR + a positivity window (2026-07-08).**
-  The cross-check showed PSR ≥ 6 dB and the (0, 300 ms) lag window both bless a +187 ms beat-period
-  alias. The honest gate is `|gcc_phat_offset - click_offset| ≤ 2 ms` per capture, with the lag
-  window admitting *negative* offsets (the harness basis is negative — the captured WAV's sample 0
-  precedes input-stream frame 0). Either that, or re-basis by trimming to beatbox-only content
-  (detect click, trim both sides equally — README) so the positive-round-trip prior holds. Then
-  re-run the 36-cell sweep against the click-bearing reference to get real per-cell offsets.
-  **Sequencing (2026-07-08): decide between the two remedies on the existing click-bearing
-  capture BEFORE burning an operator session on the re-capture.** `analysis/click_check/` already
-  holds one baseline capture with known truth (-80.98 ms). The open question the cross-check
-  leaves unanswered: with a lag window that admits negative offsets, does the band-limited
-  GCC-PHAT argmax land on the true -81 ms peak, or is the +107 ms beat-period alias peak
-  *genuinely larger* in the correlation? If the alias dominates even with the window pointed
-  correctly, only the trim/re-basis remedy works and the sweep pipeline must be built around it.
-  One pure-Python experiment on data already on disk decides the pipeline design; also land the
-  `reflector_geometry` metadata field (below) before the re-capture so the new sweep records it.
+- ~~**Re-gate GCC-PHAT on the calibration click, not on PSR + a positivity window
+  (2026-07-08).**~~ — **remedy decided and pipeline built (2026-07-08; see "Alias-gate remedy
+  decision" above).** The open question — does a negative-admitting window suffice, or does the
+  alias peak genuinely dominate? — was answered on the existing `analysis/click_check/` capture:
+  **the alias is ~12 dB larger than the true peak**, so no wide window works; the gate is a
+  click-anchored ±90 ms window (< half the beat period, alias excluded by construction) plus
+  `|gcc_phat_offset - click_offset| <= 2 ms`, with PSR demoted to a diagnostic
+  (`run_click_gated_sweep.py`). Remaining: land `reflector_geometry` (below), then re-run the
+  36-cell sweep against the click-bearing reference through that script.
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but

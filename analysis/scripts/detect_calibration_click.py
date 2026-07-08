@@ -66,8 +66,10 @@ def main() -> int:
         "--max-offset-ms",
         type=float,
         default=300.0,
-        help="upper bound of the plausible ground-truth offset search window (default 300, "
-        "matching the GCC-PHAT sweep's lag window); 0 disables the window",
+        help="half-width of the SIGNED ground-truth offset search window (+/- this around "
+        "zero offset). The harness basis is negative -- the captured WAV's sample 0 "
+        "precedes input-frame 0 -- so the window must admit negative offsets (see "
+        "doc/test2-sweep-results.md 'Calibration click cross-check'). 0 disables the window",
     )
     args = parser.parse_args()
 
@@ -83,7 +85,8 @@ def main() -> int:
         click_onset_ref = round(rate * PRE_SILENCE_S)
         window = None
         if args.max_offset_ms > 0:
-            window = (click_onset_ref, click_onset_ref + round(rate * args.max_offset_ms / 1000.0))
+            half = round(rate * args.max_offset_ms / 1000.0)
+            window = (max(0, click_onset_ref - half), click_onset_ref + half)
         det = detect_click(capture, rate, search_window=window)
         gt_samples = det.onset_sample - click_onset_ref
         gt_ms = 1000.0 * gt_samples / rate

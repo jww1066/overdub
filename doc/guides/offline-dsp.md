@@ -76,8 +76,8 @@ Python) so dependency versions stay pinned.
   **Sharpened 2026-07-08 (calibration-click cross-check, `test2-sweep-results.md`): PSR *and* a
   plausible-lag window are STILL not enough.** The +97.2 ms "population mean" and the whole
   +61..+151 ms family turned out to be **+187 ms beat-period aliases** of *negative* true offsets
-  (the baseline cell's true offset is -80.98 ms by matched-filter click detection; GCC-PHAT
-  reported +107.12 ms at PSR 12.1 dB "confident" — ~188 ms off, essentially one reference beat
+  (the baseline cell's true offset is -79.62 ms by matched-filter click detection; GCC-PHAT
+  reported +107.12 ms at PSR 12.1 dB "confident" — ~187 ms off, essentially one reference beat
   period). The beat-period alias sat *inside* the (0, 300 ms) plausible window with a high PSR, so
   both gates blessed it. The positivity prior ("a round-trip is positive") was wrong *for the
   harness's measurement basis* (the captured WAV's sample 0 precedes input-stream frame 0, so the
@@ -89,6 +89,16 @@ Python) so dependency versions stay pinned.
   not with PSR + a lag window. `analysis/scripts/check_reference_periodicity.py` maps a reference's
   self-similarity peaks (plain autocorrelation — PHAT-of-self is always a perfect impulse and hides
   the periodicity) so the alias risk is visible before trusting any correlation.
+  **Sharpened again (2026-07-08, alias-gate remedy decision): the alias peak can be genuinely
+  LARGER than the true peak — then no lag window of any sign can save the argmax.** Measured with
+  `evaluate_alias_gate.py` (via `gcc_phat_correlation`, which exposes the raw correlation so
+  competing peaks are rankable): on the baseline capture the beat-period alias outranked the true
+  peak by **~12 dB**; a correctly-signed wide window still returned the alias. The only correlator
+  remedy is an *anchored* window narrower than half the alias period, centered on an independent
+  estimate (the calibration click for validation; the `getTimestamp` stream offset for the
+  product-shaped path — its ~15 ms anchor error is far inside a ±90 ms half-width). Trimming the
+  reference to reduce self-similarity flipped the ranking by only 0.4 dB — a coin flip, not a
+  remedy.
 - **"Measure, don't assume" catch on the fix:** the intuition that bandpassing *widens* the
   correlation main lobe (half-width ~ 1/(2*bandwidth) ~= 7 samples at 500-4000 Hz / 48 kHz), so a
   2-sample `psr_exclusion` would start measuring the filter's lobe shape instead of the true peak,
@@ -99,6 +109,14 @@ Python) so dependency versions stay pinned.
   ratio, not an exclusion artifact, and the 2-sample default was already fine. A textbook case of
   the "validate empirically before changing" rule above: the measurement showed the
   suspected-miscalibrated default was correct.
+  **Caveat (2026-07-08): that impulse-sharpness was measured at the *alias* peak — a
+  self-similarity feature of the clean reference. The genuinely *acoustic* true peak is NOT
+  sharp: it is a multipath cluster** (near-equal sub-peaks at 0 and +6 samples, ~±0.13 ms spread,
+  measured with `evaluate_alias_gate.py`'s peak-shape output), so small-exclusion PSR reads
+  **~0 dB at a perfectly correct alignment** (0.6 dB even at a 16-sample exclusion). Corollary:
+  PSR is not a usable gate for a real reverberant acoustic path at all — gate on
+  `|offset - independent ground truth|` and keep PSR as a diagnostic. Which peak you measured
+  the lobe on matters as much as measuring it.
 - **PSR is a fragile, band-sensitive *label*; the recovered offset is the robust quantity -- don't
   re-tune the band to chase one cell's PSR.** After the 500-4000 Hz sweep left one cell below the
   6 dB bar (`loud_far_facedown_none`, PSR 5.1 dB), narrowing to 1000-4000 Hz rescued it (12.6 dB)
