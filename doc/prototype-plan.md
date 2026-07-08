@@ -88,7 +88,16 @@ results:
    (2026-07-08, click-anchored gate on the baseline capture): correlator-vs-click error
    -0.54 ms** — well inside ±2 ms, an encouraging sign that most of the 5.5 ms residual std is
    harness/quantization rather than correlator error; the 36-cell click-gated re-run provides
-   the population number.
+   the population number. **Session A measurement (2026-07-08, baseline × 9 repeats,
+   `test2-sweep-results.md` "Session A re-capture"): correlator-vs-click error mean −1.18 ms,
+   std 0.25 ms, max 1.35 ms — 9/9 inside ±2 ms.** The 5.5 ms scare is resolved: it was harness
+   start-jitter + quantization, and the correlator's own per-session std (0.25 ms) consumes
+   almost none of the ±2 ms per-hop allowance (the stable ~−1.2 ms bias is calibratable, not
+   noise). One new budget input cuts the other way: **1 of 9 runs showed a ~40 ms `getTimestamp`
+   outlier** (stream−click residual +24.5 ms vs. the −15.1 ± 0.25 ms cluster of the other
+   eight) — on the best-case device, so Test 1a's ≤5 ms trust bar cannot be met by a single
+   timestamp read; any product mechanism using `getTimestamp` needs repeated reads/median and
+   the loopback-rig honesty check remains load-bearing.
 
 ## Test 1 — Latency harness (continuous-buffer stability)
 

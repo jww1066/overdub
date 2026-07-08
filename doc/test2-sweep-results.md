@@ -565,6 +565,46 @@ through this script as the Test 2 step 2 judgment — staged as Session A (basel
 the two known-extreme cells) then a conditionally-needed Session B (the full matrix); see
 `test2-step2-plan.md` item 11 (c) for the protocol and its rationale.
 
+## Session A re-capture — baseline gate cell (2026-07-08)
+
+Item 11c Session A, first half: the baseline cell `conversational_armslength_faceup_none`
+re-captured 9× back-to-back on the Pixel 10 with the click-bearing reference and the phone
+untouched (wall-as-reflector; sidecars carry `"reflector_geometry":"wall"`), judged with
+`run_click_gated_sweep.py`. Data in `analysis/recapture_session_a/` (gitignored, as with all
+capture dirs; results CSV `click_gated_results.csv` alongside).
+
+**Verdict: 9/9 PASS** — every repeat within ±2 ms of its own click ground truth. Headline numbers:
+
+- **Correlator error vs click: mean −1.18 ms, std 0.25 ms, max |err| 1.35 ms.** This is the
+  per-session error std the budget reconciliation needed (prototype-plan.md thresholds point 4):
+  the timestamp study's 5.5 ms residual std was almost entirely harness start-jitter plus
+  quantization, not correlator error. A small *stable* ~−1.2 ms bias is visible (suspect: click
+  matched-filter vs. correlator group-delay asymmetry) — inside the bar, and better carried in the
+  budget as a calibratable constant than treated as noise.
+- **True offsets −63..−96 ms, all negative** — the alias diagnosis is now confirmed on population
+  data, not just the single cross-check capture. Raw offset std ~9 ms = per-session start-jitter,
+  consistent with the item-10 study; it cancels exactly in the per-capture `gcc − click` gate.
+- **Basis residual (stream − click): −15.1 ms with std ~0.25 over 8 of 9 runs — but one run read
+  +24.5 ms**, a ~40 ms `getTimestamp` outlier (repeat 7, `..._410074`; the capture is otherwise
+  clean and its click gate passed at −0.50 ms). The click anchor is immune (it doesn't use
+  timestamps), and even the timestamp-anchored ±90 ms window would survive a 40 ms mis-center —
+  but **1-in-9 timestamp flakiness on the best-case device is a Test 1a finding**: any product
+  mechanism trusting a *single* `getTimestamp` read per session inherits ~40 ms tail risk. Read it
+  repeatedly / take a median, and keep the loopback-rig honesty check on the books.
+- Every capture clean: rms 4167–4187 (tight — the phone genuinely stayed put), 0 XRuns, 0 dropped,
+  builtin_speaker, 48 kHz.
+
+**Process catch:** the session's very first capture came from a **stale test APK** (installed
+during the click-check session, which predated item 9's commit) and its sidecar silently lacked
+`reflector_geometry` — caught because item 9's plumbing check deliberately ran first, and
+diagnosed by the missing `geometry=` segment in the on-device sweep log line. Both APKs were
+rebuilt and reinstalled; the stale capture is excluded from the analysis set (all 9 analyzed
+captures are fresh-APK). Item 9 is now verified on-device.
+
+**Still open in Session A:** the two extreme cells — `quiet_far_faceup_pocketed` (min-bleed / SNR
+failure mode) and `loud_far_facedown_none` (HF-rattle / contaminated-peak failure mode) — pending
+operator repositioning to the ~2 m position. Session B stays gated on their outcome.
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population
@@ -607,7 +647,8 @@ the two known-extreme cells) then a conditionally-needed Session B (the full mat
   2026-07-08) — Session A: baseline × ~9 repeats + the min-bleed and rattle extreme cells
   (verdict, budget error-std, basis-residual stability, item-9 plumbing check); Session B: the
   remaining arrangements for the full 36-cell map, gated on A's outcome. Protocol + rationale:
-  `test2-step2-plan.md` item 11 (c).
+  `test2-step2-plan.md` item 11 (c). **Session A's baseline half ran 2026-07-08: 9/9 PASS, err
+  std 0.25 ms — see "Session A re-capture" above. The two extreme cells + Session B remain.**
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but

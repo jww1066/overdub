@@ -549,7 +549,11 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
    a desk-below-style deviation must be stated to be recorded). Tier-1 tested (round-trip,
    omitted-when-null, legacy-sidecar-decodes-as-unknown); `gradlew test assembleDebug` +
    `assembleDebugAndroidTest` green. On-device plumbing check folds into the first cell of
-   item 11's re-capture (metadata-only change, no audio-path behavior touched).
+   item 11's re-capture (metadata-only change, no audio-path behavior touched). **Plumbing check
+   ran 2026-07-08 and earned its keep: the first capture came from a stale test APK (installed
+   pre-item-9) whose sidecar silently lacked the field — diagnosed by the missing `geometry=`
+   in the sweep log line, fixed by rebuild + `adb install -r` of both APKs; the re-run sidecar
+   carries `"reflector_geometry":"wall"`. Verified on-device.**
 11. **Embed an in-basis calibration click and re-judge the ±2ms bar against it (added 2026-07-08).**
     Prepend a short high-SNR click (or click pair) at a known sample position in the bundled
     reference track, detect its onset in each capture WAV (trivially accurate at high SNR, and
@@ -616,6 +620,12 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
       (3) `loud_far_facedown_none` (the HF-rattle cell — the contaminated-peak failure mode,
       whose old "band-robust 87.10 ms" was an alias, so its true alignment is unknown).
       Judge everything with `run_click_gated_sweep.py`.
+      **Status (2026-07-08): (1) done — 9/9 PASS the ±2 ms click gate; correlator error mean
+      −1.18 / std 0.25 / max 1.35 ms (the budget error-std); basis residual −15.1 ms stable on
+      8/9 runs with one ~40 ms `getTimestamp` outlier (a Test 1a tail-risk finding); item-9
+      plumbing check passed after catching a stale test APK. Full write-up:
+      `test2-sweep-results.md` "Session A re-capture." (2) and (3) still pending — repositioning
+      to the ~2 m position was in progress when the session paused.**
     - **Session B (the remaining ~9 arrangements → the full 36-cell map), gated on A:** if A's
       extremes and baseline pass cleanly, B is confirmatory — run it when convenient to restore
       the per-cell alignment/UX-constraint map with an honest gate; if an extreme fails, B is

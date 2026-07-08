@@ -53,6 +53,7 @@ analysis/sweep_discarded*/
 analysis/sweep_data/
 analysis/timestamp_study/
 analysis/click_check/
+analysis/recapture_session_a/
 
 # OS / editor cruft
 .DS_Store
