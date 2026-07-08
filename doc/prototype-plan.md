@@ -342,8 +342,13 @@ period, so a one-beat alias is excluded by construction) plus
 peak is a multipath cluster that reads ~0 dB PSR even when correct). A
 stream-timestamp-anchored window recovered the same true offset, validating the product-shaped
 mechanism (the product has no click, but has `getTimestamp`). Pipeline:
-`analysis/scripts/run_click_gated_sweep.py`. Remaining: the `reflector_geometry` metadata field,
-then re-run the full 36-cell sweep against the click-bearing reference through that script.
+`analysis/scripts/run_click_gated_sweep.py`. Remaining: the staged re-capture (the
+`reflector_geometry` field landed 2026-07-08) — Session A: baseline cell × ~9 repeats plus the
+min-bleed and HF-rattle extreme cells, which yields the step-2 verdict on the gate cell, the
+per-session correlator-error std the budget reconciliation needs, and the stream-vs-click
+basis-residual stability that feeds Test 1a; Session B: the remaining arrangements to restore
+the full 36-cell alignment/UX-constraint map, run as confirmation if A passes or as
+boundary-location if an extreme fails. Protocol detail: `test2-step2-plan.md` item 11 (c).
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 

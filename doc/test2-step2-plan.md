@@ -599,9 +599,27 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     (the true acoustic peak is a multipath cluster that reads ~0 dB PSR even when correct).
     Pipeline: `analysis/scripts/run_click_gated_sweep.py` (smoke-tested 1/1 PASS, err -0.54 ms);
     the stream-timestamp-anchored variant also passed, validating the product-shaped mechanism.**
-    **(b)** land item 9's `reflector_geometry` field so the re-capture records it; **(c)** re-run
-    the full 36-cell sweep against the click-bearing reference through
-    `run_click_gated_sweep.py`.
+    ~~**(b)** land item 9's `reflector_geometry` field so the re-capture records it~~ — done
+    (2026-07-08, item 9); **(c)** the re-capture itself, staged so the decision-critical
+    measurements land in the cheapest session (protocol revised 2026-07-08 — the full matrix is
+    not needed for the verdict, the budget number, or the basis-residual stability, which are
+    per-*session* quantities; varied positions are what test the anchored gate's two
+    position-dependent failure modes, and the two worst cases are already known from the RMS map):
+    - **Session A (~3 positionings, answers everything decision-critical):**
+      (1) baseline cell `conversational_armslength_faceup_none` × ~9 repeats
+      (`repeat_sweep_cell.sh`, phone untouched) — the Test 2 verdict on the gate cell, the
+      per-session `|gcc - click|` error std the budget reconciliation needs (a matrix at one
+      capture per cell cannot measure this), and the `stream - click` basis-residual stability
+      that feeds Test 1a; the first run doubles as item 9's on-device plumbing check (sidecar
+      must carry `"reflector_geometry":"wall"`).
+      (2) `quiet_far_faceup_pocketed` (minimum-bleed cell, RMS 1429 — the SNR failure mode).
+      (3) `loud_far_facedown_none` (the HF-rattle cell — the contaminated-peak failure mode,
+      whose old "band-robust 87.10 ms" was an alias, so its true alignment is unknown).
+      Judge everything with `run_click_gated_sweep.py`.
+    - **Session B (the remaining ~9 arrangements → the full 36-cell map), gated on A:** if A's
+      extremes and baseline pass cleanly, B is confirmatory — run it when convenient to restore
+      the per-cell alignment/UX-constraint map with an honest gate; if an extreme fails, B is
+      *needed*, to locate the boundary of where alignment fails for the UX-constraint map.
 12. **Vocal-interference injection study (Test 2 step 3 in prototype-plan.md, added 2026-07-08).**
     Mix a dry close-mic vocal take into the existing 36 captures at controlled vocal-to-bleed
     ratios and re-run the band-limited GCC-PHAT — the sweep measured bleed against a quiet room,

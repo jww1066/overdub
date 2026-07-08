@@ -560,9 +560,10 @@ matched-filter click detection (quality-floor-gated, so legacy click-less captur
 gate, diagnostic PSR at 16-sample exclusion, and `stream_minus_click_ms` for the basis-residual
 population. Smoke-tested on the click_check capture: 1/1 PASS, err -0.54 ms. The
 `detect_calibration_click.py` default search window was also fixed from positive-only to signed
-(the same wrong-sign prior the cross-check exposed in the sweep gate). The 36-cell re-capture
-(after item 9's `reflector_geometry` field lands) runs through this script as the Test 2 step 2
-judgment.
+(the same wrong-sign prior the cross-check exposed in the sweep gate). The re-capture runs
+through this script as the Test 2 step 2 judgment — staged as Session A (baseline × ~9 repeats +
+the two known-extreme cells) then a conditionally-needed Session B (the full matrix); see
+`test2-step2-plan.md` item 11 (c) for the protocol and its rationale.
 
 ## Next steps (post-sweep)
 
@@ -602,8 +603,11 @@ judgment.
   **the alias is ~12 dB larger than the true peak**, so no wide window works; the gate is a
   click-anchored ±90 ms window (< half the beat period, alias excluded by construction) plus
   `|gcc_phat_offset - click_offset| <= 2 ms`, with PSR demoted to a diagnostic
-  (`run_click_gated_sweep.py`). Remaining: land `reflector_geometry` (below), then re-run the
-  36-cell sweep against the click-bearing reference through that script.
+  (`run_click_gated_sweep.py`). Remaining: the staged re-capture (`reflector_geometry` landed
+  2026-07-08) — Session A: baseline × ~9 repeats + the min-bleed and rattle extreme cells
+  (verdict, budget error-std, basis-residual stability, item-9 plumbing check); Session B: the
+  remaining arrangements for the full 36-cell map, gated on A's outcome. Protocol + rationale:
+  `test2-step2-plan.md` item 11 (c).
 - **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
   and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
