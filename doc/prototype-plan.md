@@ -23,11 +23,18 @@ design-summary.md "Chain-of-forwarding alignment error").
 | 2 — bleed alignment | **Pass bar met** — Session A 11/11 under the click-anchored gate | Session B (full 36-cell map) is confirmatory-only |
 | 3 — multi-hop error | **Conditional PASS** (closed-form arithmetic) | Conditions: cross-device bias ≤ ~±8 ms (needs device #2); median-of-5 reads + a per-capture rejection gate |
 
-Remaining work in priority order: (1) Test 1a interim step 3 — headset-route timestamp batch, if
-a wired USB-C headset is on hand; (2) Test 2 Session B confirmatory re-capture; (3) Tests 1 + 1a
-when the rig arrives — the headphone-route honesty check is the most consequential remaining
-measurement (see Test 1a); (4) cross-device bias subtraction + the on-device AGC tone probe when
-a second device exists.
+Remaining work in priority order (updated 2026-07-09 — a wired USB-C headset is on hand, and the
+design round recorded in design-summary.md added two analysis items): (1) the never-run Tier-2
+headset-override test — does `setPreferredDevice()` demote an active headset route? — which now
+gates the product's forced-speaker-chirp direction (design-summary.md "Headphone monitoring
+gap"), plus Test 1a interim step 3 (headset-route timestamp batch) in the same device session;
+(2) the bleed-mix listening test — align a Session A capture, mix with the clean reference,
+listen; decides whether echo cancellation is v1 work (design-summary.md "Open items");
+(3) the calibration-signal bake-off — 2–3 musical templates, synthetic validation + one capture
+each (design-summary.md, beat-period-aliasing item); (4) Test 2 Session B confirmatory
+re-capture; (5) Tests 1 + 1a when the rig arrives — the headphone-route honesty check is the
+most consequential remaining measurement (see Test 1a); (6) cross-device bias subtraction + the
+on-device AGC tone probe when a second device exists.
 
 ## Why these two, and not the others
 

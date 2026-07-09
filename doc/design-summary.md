@@ -43,7 +43,8 @@ direct message attachment.**
   Storage Access Framework / share sheet and let the user manually pick a destination? The former
   guarantees losslessness but adds a real dependency and onboarding step; the latter is simpler to
   build but a user could still pick a messaging app as the destination and reintroduce transcoding
-  risk.
+  risk. (Deferral reaffirmed 2026-07-09 — not test-gated; the SAF path's transcoding risk is the
+  deciding factor to weigh at product-build time.)
 - Link permissions: must ensure the uploaded file is accessible to the recipient (e.g. "anyone with
   the link can view") without exposing it to a wider unintended audience — needs a concrete
   sharing-permission default.
@@ -91,11 +92,12 @@ the app somehow, without saying how.
      from centralized layering apps (SoundStorming, Trackd, BandLab, Soundtrap) established in
      "Prior art check" above.
 
-**Decision: not yet made.** Recorded as an open item rather than resolved here, since it's a product
-decision (how much onboarding friction is acceptable) more than a technical one, and doesn't gate
-the load-bearing alignment questions `prototype-plan.md`'s tests are validating. Option 1
-(app-to-app direct share) has no real downside and should likely be built regardless of how the
-first-touch/no-app-yet case is eventually resolved.
+**Decision (2026-07-09): both cases decided.** Option 1 (app-to-app direct share) is ratified —
+build it as the preferred path whenever the recipient has the app. For the no-app-yet case, take
+the owned-domain App Link + static landing page route: first-touch is the worst possible place
+for friction in a product whose growth mechanism *is* the forwarding chain, and the cost (a
+domain plus static hosting, no backend compute) does not reverse the no-central-server
+positioning.
 
 ## Latency
 No authoritative published round-trip latency number exists for the Pixel 10 specifically — Google's official AOSP latency table stops at 2016-2017 Pixel/Pixel XL devices (18ms under ideal conditions). Best available reference points:
@@ -110,7 +112,7 @@ No authoritative published round-trip latency number exists for the Pixel 10 spe
 4. **Speaker+mic vs. USB-C wired audio compared:** USB-C is the only path that avoids mic bleed without Bluetooth, and is one of three officially CTS-tested latency routes in the CDD — but requires hardware most users don't have and has unverified cross-device USB Audio Class support.
 5. **Final direction: accept mic bleed for accessibility.** This unexpectedly *helps* rather than only hurts:
    - Bleed enables **cross-correlation-based timing alignment** (GCC-PHAT, Knapp & Carter 1976) using the beatbox bleed as a natural reference signal — ~~no calibration step needed, more reliable than trusting AAudio's self-reported latency~~ **(claim weakened 2026-07-08).** The Test 2 sweep showed GCC-PHAT against a rhythmic beatbox reference locks onto **beat-period self-similarity aliases** — a +187 ms alias won the argmax with a "confident" PSR over the true ~-80 ms offset, and neither the PSR gate nor a positivity lag window rejected it (`test2-sweep-results.md` "Calibration click cross-check"). An *independent* calibration signal (a prepended aperiodic chirp, detected by matched filter) was required to even *judge* the alignment, and is likely needed in the product to gate it per-capture. So "no calibration step" no longer holds as stated; the honest position is "calibration is needed to *validate/gate* the bleed correlation, and whether the product must *emit* a calibration chirp per take or can rely on a runtime self-check is an open question." This also rehabits trusting AAudio's self-reported latency (Test 1a): on the Pixel 10 `getTimestamp` succeeded on both streams and tracked the start-jitter, so it may be the more robust mechanism — the original rejection rested on a single moto g(20) anecdote.
-   - Bleed can be reduced (not eliminated) via **acoustic echo cancellation with a known reference** (NLMS adaptive filtering, per Sondhi & Berkley 1980) — best done **offline/server-side** using the exact clean beatbox stem, since there's no real-time deadline and the known delay constrains the search. Android's built-in `AcousticEchoCanceler` is a real-time alternative but of unverified quality for music content specifically.
+   - Bleed can be reduced (not eliminated) via **acoustic echo cancellation with a known reference** (NLMS adaptive filtering, per Sondhi & Berkley 1980) — best done **offline, on-device** (processing-locus decision 2026-07-09) using the exact clean beatbox stem, since there's no real-time deadline and the known delay constrains the search. Android's built-in `AcousticEchoCanceler` is a real-time alternative but of unverified quality for music content specifically. Whether EC is needed at all for v1 is gated on the bleed-mix listening test (see "Open items").
 6. **Revisited 2026-07-05, after documentation review:** point 5's bleed mechanism assumes the reference track exits the phone's own loudspeaker and re-enters its own mic. Headphone monitoring removes that acoustic path almost entirely, silently breaking alignment for a large, predictable share of real users — not addressed in the original design. See "Headphone monitoring gap and alignment alternatives" below for the options considered and the direction chosen.
 
 ## Headphone monitoring gap and alignment alternatives
@@ -177,6 +179,19 @@ median-of-k **plus** a per-capture rejection gate; on the headphone route (no cl
 rig) the session-level class would be silent, which is the concrete failure Test 1a's rig
 honesty validation must de-risk before the product trusts `getTimestamp` blind.
 
+**Decision revised (2026-07-09): pursue option 1 (forced-speaker chirp) first for the product.**
+The multi-read batch changed the calculus: option 2's session-level desync class is undetectable
+on the headphone route without an acoustic anchor, while option 1 — if the route override works —
+gives headphone sessions the same calibration-signal anchor + per-capture gate as the speaker
+route (one mechanism everywhere, timestamps demoted to diagnostics). The gating fact to
+establish next: whether `setPreferredDevice()` can demote an active headset route — the
+never-run Tier-2 headset-override test (`test2-step2-plan.md`, Tier 2); a wired USB-C headset is
+on hand. Option 2 remains the fallback if OEMs refuse the override, and then requires
+median-of-5 reads plus a per-capture rejection gate, rig-validated honesty, and a UX answer for
+the undetectable session-level class. Backstop UX (either route, decided 2026-07-09): a
+**re-take prompt on gate failure** — when the per-take gate fails, tell the performer
+immediately and offer a re-record.
+
 ## Chain-of-forwarding alignment error
 
 **Problem:** raised in documentation review (`review-20260705-093038.md`) — the product is
@@ -236,10 +251,13 @@ thread).
   with the Oboe audio callback or the UI thread.
 - File I/O for the shared recording (write to disk, upload to cloud storage, read a downloaded
   stem) runs on `Dispatchers.IO`.
-- Echo cancellation stays off-device/offline per the existing decision (see "Timing correction
-  strategy," point 6), so it isn't this app's dispatcher concern unless the on-device
-  `AcousticEchoCanceler` fallback is ever adopted — that runs real-time via the platform
-  `AudioEffect` framework, not app-owned coroutine work.
+- Echo cancellation, if adopted after the bleed-mix listening test (see "Open items"), runs
+  **offline on-device** like alignment — a post-take NLMS pass on `Dispatchers.Default`, not
+  real-time audio-callback work. (Processing-locus decision 2026-07-09: there is **no processing
+  backend** — earlier "server-side" phrasing for EC and the playback-start offset meant
+  *offline*, and all post-alignment processing runs on the phone, preserving the
+  no-central-server positioning. The `AcousticEchoCanceler` real-time fallback, if ever adopted,
+  is platform `AudioEffect` work, not app-owned coroutine work.)
 - Alignment is exposed as a single `suspend fun align(...)` on a repository-shaped class (e.g.
   `OverdubRepository`, consistent with the android-data-layer skill's repository-as-error-boundary
   pattern), not a fire-and-forget callback. The caller (ViewModel) owns the scope
@@ -279,7 +297,7 @@ a damaged file just as the typed variant can.
 2. A lead-in plays: metronome count-in + optional reference chord (user-requested only — skippable for pure percussion tracks).
 3. Recording starts immediately at lead-in; performer waits until measure 2 to begin the real performance.
 4. Full recording (including lead-in) is sent downstream — **never trimmed at the source**, because the lead-in is the reference material needed for alignment, and the correct cut point isn't known until after alignment is computed.
-5. Non-destructive **playback-start offset** (computed once, server-side, after alignment) lets downstream users skip the lead-in on playback without deleting it from the file.
+5. Non-destructive **playback-start offset** (computed once, on-device after alignment — processing-locus decision 2026-07-09, see "Concurrency and threading model") lets downstream users skip the lead-in on playback without deleting it from the file.
 6. **Critical implementation risk flagged:** the lead-in and the overdub target track must be one continuous audio buffer/stream, not two sequentially-scheduled players — a scheduling seam between them would silently invalidate the measured offset. Needs explicit verification on real devices.
 
 ## Early-start / pickup-note handling
@@ -311,7 +329,33 @@ a damaged file just as the typed variant can.
   correlation, can a runtime self-check (e.g. consistency of GCC-PHAT across two analysis bands, or
   vs. `getTimestamp`) detect the alias without an emitted chirp, or should the reference be chosen
   to be less rhythmically periodic? See `test2-sweep-results.md` "Calibration click cross-check."
-- Reliability of `AcousticEchoCanceler` and onset detection specifically on noisy phone-recorded music content — unverified in both cases.
+  **Decided (2026-07-09): every take emits a calibration signal**, mixed into the playback stream
+  at a known sample position during the lead-in (generated at playback time — never embedded in
+  the shared files), providing both the anchored search window and the per-take rejection gate
+  (`|gcc − signal| ≤ 2 ms`; gate failure → re-take prompt). No vocal is present during the
+  lead-in, so the burial failure mode can't occur there. The laboratory chirp's *sound* is not
+  required — the hard requirements are: energy concentrated in 500–4000 Hz (the measured
+  speaker/mic passband), ≥ ~2 kHz of bandwidth within it (sub-ms, cycle-unambiguous matched-filter
+  peak), an aperiodic single-peak autocorrelation (sidelobes ~10+ dB down within the ±90 ms
+  window), a deterministic waveform at a known position, and enough level × duration for ~10 dB
+  detection quality (pulse compression lets a longer signal be proportionally quieter). Duration,
+  level, envelope, and timbre are free. **Next: prototype 2–3 musical candidates and A/B them**
+  (a designed accented-downbeat count-in transient — must stay timbrally unique vs. the other
+  count-in clicks or the beat-period alias returns; a low-level 200–400 ms log-sweep riser; a
+  fixed-seed shaker/noise burst), validated synthetically first, then one on-device capture each.
+  Rejected: "choose a less periodic reference" (the reference is user content) and a
+  timestamp-only runtime self-check as the primary gate (it cannot see the session-level desync
+  class).
+- **Echo cancellation for v1 — gated on a bleed-mix listening test (decided 2026-07-09, next
+  analysis item).** The vocal-injection study measured the overdub capture carrying reference
+  bleed ~12 dB *above* the vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated.
+  Whether the aligned bleed reads as benign on-beat "room" or objectionable comb-filter
+  coloration in a real mix is unknown — no one has heard the product-shaped result. Test: align
+  a Session A capture against the clean reference, mix (reference + aligned overdub with vocal),
+  and listen; pure Python plus ears, no device time. Outcome decides whether offline on-device
+  NLMS is v1 work or stays deferred. `AcousticEchoCanceler` quality on music content remains
+  unverified either way.
+- Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a
   performer watching their instrument/hands can't see a visual-only cue at the critical instant.
