@@ -42,6 +42,27 @@ Python) so dependency versions stay pinned.
   `numpy` broadcast-shape `ValueError` rather than a clear error or correct result. When a slice
   bound is arithmetic (not a literal), explicitly guard the case where it could go negative rather
   than trusting Python's negative-index reinterpretation to do the right thing.
+- **When fitting a line to flag outliers, anchor the slope at any physically-known value and fit
+  only a robust (median) intercept — don't OLS-fit the slope.** A stream's `framePosition` advances
+  at the sample rate *by definition* (each frame is 1/fs second), so the slope is a given, not an
+  estimate. An OLS fit through a single outlier tilts toward it and smears the outlier's error onto
+  the clean reads — one +40 ms glitch among 10 clean reads spread ~±5 ms residuals onto the clean
+  points, right at a 5 ms flag floor, creating false flags and fragile classification. Anchoring the
+  slope at the sample rate and taking the median of `f_i - slope*t_i` as the intercept leaves the
+  outlier standing alone (residual ~40 ms, clean residuals ~0). Keep the OLS slope as a *drift
+  diagnostic*: a slope off the sample rate signals the stream's `framePosition` isn't advancing at
+  the claimed rate — a session-level state, not a single-read glitch (see CLAUDE.md trap (e)).
+  Worked case: `overdub_analysis/timestamp_multiread.py` `fit_line` (item 13 (b)).
+- **Center an outlier threshold on the healthy population's robust value (the median), not on zero,
+  when the healthy value carries a fixed offset.** The multi-read analysis first flagged 31/43
+  healthy runs as "single-read outliers" because the threshold was `|single - click| > 15 ms` and
+  every healthy run's `single - click` sits at the ~-15 ms measurement-basis constant — so a
+  threshold set at the basis *magnitude* flagged the basis itself. Centering on `median(single -
+  click)` (the basis) and flagging deviations from *that* left only the 2 real outliers. General
+  rule: if the quantity you're flagging has a legitimate nonzero operating point (a basis constant,
+  a calibration offset, a DC bias), the threshold is a *deviation from that operating point*, not an
+  absolute magnitude — or you'll flag every healthy case and never notice because the "outliers" look
+  plausible.
 
 ## GCC-PHAT lessons (Test 2 real-bleed sweep)
 

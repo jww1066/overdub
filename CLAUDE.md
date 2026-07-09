@@ -53,7 +53,21 @@ Two general rules: **establish the measurement basis's sign before constraining 
 **judge an estimator against an instrument that does not share its failure mode** (here, an aperiodic
 chirp has no beat-period ambiguity, so it sees the alias the correlator can't). Worked case:
 `doc/guides/offline-dsp.md` (GCC-PHAT lessons) and `doc/test2-sweep-results.md` "Calibration click
-cross-check."
+cross-check." (e) **a remedy's arithmetic only covers the failure class it models — a different class
+with the same symptom escapes it, so measure the failure-class distribution before trusting the remedy.**
+A median-of-5-`getTimestamp`-reads remedy was binomially justified for *single-read* glitches (Test 3's
+knife-edge); a 43-capture multi-read batch then measured that ~half the real anomalies were a
+*session-level desync* — the input clock offset ~+35 ms for the whole session, the audio itself
+misaligned 78.67 ms, the median wrong too, and silent to XRun/dropped/route gates (only the independent
+calibration click caught it). The median fixes the isolated-glitch class; it cannot fix the session-level
+class. A self-consistency check (residuals from a model fit to the suspect's *own* readings) is no
+substitute either: a *uniform* whole-session offset shift leaves each stream's frame-vs-time line
+internally consistent (slope still the sample rate, residuals ~0), indistinguishable from a
+correctly-offset session without an independent anchor — a direct corollary of (d). Two general rules:
+**discriminate the failure classes before betting on a remedy** (arithmetic that's correct for one class
+says nothing about another class with the same symptom), and **a detector built from the suspect's own
+readings cannot see a failure that shifts all of them together — only an independent anchor can.** Worked
+case: `doc/test2-sweep-results.md` "Multi-read timestamp batch."
 
 ## Diagnose before re-implementing
 
@@ -122,6 +136,17 @@ loudness/headroom, the full-duplex startup-XRun fix, focus-ducking artifacts) ar
   the intended working directory and fails with a misleading `'gradlew.bat' is not recognized` —
   a second wrong-cwd error wearing a different costume. Reserve `cmd //c` for genuinely
   Windows-only tools; Gradle ships a POSIX wrapper.
+- **After editing native (C/C++) code, clean-rebuild before installing the instrumented APK.**
+  `:harness:assembleDebugAndroidTest` can report UP-TO-DATE and repackage a stale `.so` (the
+  native build's outputs are not always wired as a packaging input), so `adb install -r` of the
+  APK that comes out can carry the *pre-edit* native lib — the test runs green but exercises old
+  code, and the sidecar silently lacks whatever field the new native code was supposed to log.
+  Run `sh ./gradlew :harness:clean :harness:assembleDebug :harness:assembleDebugAndroidTest` (or
+  `:harness:externalNativeBuildDebug --rerun-tasks` then re-assemble) before trusting an on-device
+  run after a `.cpp`/`.h` edit. This is the same stale-APK class that bit item 9 (a stale test APK
+  whose sidecar lacked `reflector_geometry`); the native-lib path is its sibling — and like that
+  one, the failure is *silent* (a green test + a missing sidecar field), so only a clean rebuild
+  or an explicit sidecar-field check catches it.
 
 ## Workflow for staged/incremental work
 
