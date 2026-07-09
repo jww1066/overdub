@@ -349,15 +349,25 @@ a damaged file just as the typed variant can.
   Rejected: "choose a less periodic reference" (the reference is user content) and a
   timestamp-only runtime self-check as the primary gate (it cannot see the session-level desync
   class).
-- **Echo cancellation for v1 — gated on a bleed-mix listening test (decided 2026-07-09, next
-  analysis item).** The vocal-injection study measured the overdub capture carrying reference
-  bleed ~12 dB *above* the vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated.
-  Whether the aligned bleed reads as benign on-beat "room" or objectionable comb-filter
-  coloration in a real mix is unknown — no one has heard the product-shaped result. Test: align
-  a Session A capture against the clean reference, mix (reference + aligned overdub with vocal),
-  and listen; pure Python plus ears, no device time. Outcome decides whether offline on-device
-  NLMS is v1 work or stays deferred. `AcousticEchoCanceler` quality on music content remains
-  unverified either way.
+- **Echo cancellation for v1 — YES, v1 work (bleed-mix listening test, 2026-07-09).** The
+  vocal-injection study measured the overdub capture carrying reference bleed ~12 dB *above* the
+  vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated. The listening test
+  (`analysis/scripts/render_bleed_mix.py`; renders + manifest in
+  `analysis/listening_test/`, gitignored) aligned a Session A capture to the clean reference and
+  auditioned the product-shaped mix against a simulated-echo-cancellation ladder (bleed attenuated
+  6/12/18 dB) and a perfect-EC reference (vocal only). Verdict: the unsuppressed product mix is
+  **not** acceptable — the bleed reads as objectionable HF hiss/coloration, not benign on-beat
+  "room"; the first acceptable rung is **~12 dB suppression** (vocal brought from −12.4 dB under its
+  backing to ~−1.5 dB), 18 dB cleaner, perfect-EC best with the least hiss. So offline on-device
+  NLMS (or `AcousticEchoCanceler`) is v1 work, with a rough **suppression target ~12 dB**; the
+  residual hiss above 12 dB is the remaining quality cost (the bleed path degrades HF the clean
+  reference doesn't carry — confirmed by its absence in the no-bleed renders). Two method notes
+  the test established: (1) the vocal must be placed on the reference grid via its take's
+  `getTimestamp` stream offset, NOT a whole-take vocal-vs-reference GCC-PHAT (the latter
+  correlates two different waveforms and is tempo-correlated but segment-unstable, which put the
+  vocal off-rhythm until corrected); (2) the A/B must be loudness-matched (common RMS) so the ear
+  judges coloration, not the bleed's ~16 dB level dominance. `AcousticEchoCanceler` quality on
+  music content remains unverified — the ~12 dB target is what an EC mechanism would have to meet.
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

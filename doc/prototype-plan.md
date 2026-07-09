@@ -23,17 +23,16 @@ design-summary.md "Chain-of-forwarding alignment error").
 | 2 — bleed alignment | **Pass bar met** — Session A 11/11 under the click-anchored gate | Session B (full 36-cell map) is confirmatory-only |
 | 3 — multi-hop error | **Conditional PASS** (closed-form arithmetic) | Conditions: cross-device bias ≤ ~±8 ms (needs device #2); median-of-5 reads + a per-capture rejection gate |
 
-Remaining work in priority order (updated 2026-07-09 — the headset-gated items are **done**: the
-Tier-2 override test **passed**, so `setDeviceId()` can demote an active USB headset and the
-forced-speaker-chirp direction is viable on this device, and the 13(c) headset-route batch is
-measured — see `test2-sweep-results.md` "Headset-route session"): (1) the bleed-mix listening
-test — align a Session A capture, mix with the clean reference, listen; decides whether echo
-cancellation is v1 work (design-summary.md "Open items"); (2) the calibration-signal bake-off —
-2–3 musical templates, synthetic validation + one capture each (design-summary.md,
-beat-period-aliasing item); (3) Test 2 Session B confirmatory re-capture; (4) Tests 1 + 1a when
-the rig arrives — the headphone-route honesty check is the most consequential remaining
-measurement (see Test 1a); (5) cross-device bias subtraction + the on-device AGC tone probe when
-a second device exists.
+Remaining work in priority order (updated 2026-07-09 — the bleed-mix listening test is **done**:
+echo cancellation is v1 work, suppression target ~12 dB; see design-summary.md "Echo cancellation
+for v1". The headset-gated items are also **done**: the Tier-2 override test **passed**, so
+`setDeviceId()` can demote an active USB headset and the forced-speaker-chirp direction is viable
+on this device, and the 13(c) headset-route batch is measured — see `test2-sweep-results.md`
+"Headset-route session"): (1) the calibration-signal bake-off — 2–3 musical templates, synthetic
+validation + one capture each (design-summary.md, beat-period-aliasing item); (2) Test 2 Session B
+confirmatory re-capture; (3) Tests 1 + 1a when the rig arrives — the headphone-route honesty check
+is the most consequential remaining measurement (see Test 1a); (4) cross-device bias subtraction
++ the on-device AGC tone probe when a second device exists.
 
 ## Why these two, and not the others
 

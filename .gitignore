@@ -69,3 +69,5 @@ Thumbs.db
 *.swp
 # Item 13 (c) headset-route timestamp batch (41 captures pulled from device).
 analysis/headset_route/
+# Bleed-mix listening-test renders (regenerate with analysis/scripts/render_bleed_mix.py).
+analysis/listening_test/
