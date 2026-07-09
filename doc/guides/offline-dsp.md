@@ -193,3 +193,54 @@ Python) so dependency versions stay pinned.
   attribute the run-to-run spread to the measurement rig (and measure it with the platform's own
   clock) before attributing it to the estimator. See `doc/guides/on-device-audio.md` for the
   full-duplex timestamp mechanism.
+
+## Echo-cancellation and audition-render lessons (NLMS prototype, 2026-07-09)
+
+From the offline NLMS echo-cancellation prototype (`overdub_analysis/echo_cancel.py`,
+`scripts/run_echo_cancel_eval.py`, `scripts/diagnose_ec_residual.py`; results in
+`design-summary.md` "Echo cancellation for v1"). CLAUDE.md trap (f) is the compressed form.
+
+- **An RMS suppression number can pass while the audio fails: energy summaries cannot see
+  structured error.** The NLMS residual cleared the ~12 dB in-band RMS target (18.4 dB measured)
+  and still auditioned as "a lot of clicks" -- the residual error was concentrated in beat-aligned
+  transients totalling tens of ms, far too short to move a 15-second RMS. The deeper mismatch: the
+  12 dB target came from a listening ladder that *simulated* EC by attenuating the bleed uniformly
+  -- a remedy whose error is spread evenly through time. A real adaptive filter's error is not
+  spread evenly; it piles up exactly where the signal is loud and the path is nonlinear. A target
+  stated in a summary metric under one error structure does not transfer to a mechanism with a
+  different error structure. Validate a perceptual deliverable by listening (or with a metric that
+  resolves the artifact class -- `diagnose_ec_residual.py`'s click census exists for exactly this),
+  and treat "meets the dB number" as necessary, never sufficient.
+
+- **Census raw captures for ADC clipping (and similar defects) whenever a NEW consumer starts
+  reading them.** The Session A baseline captures carried 1,247 full-scale samples -- the input
+  chain rails on beatbox kick transients at conversational volume -- through the entire Test 2
+  program without anyone noticing, because GCC-PHAT is robust to clipped transients. The moment a
+  linear echo canceller (not robust: clipping is a nonlinearity it cannot model) read the same
+  files, every railed beat became an audible click. "This data passed validation" is always
+  relative to the consumer that validated it; a one-line clip census (`|x| >= 32767` count) at
+  capture-pull time is nearly free and should be part of any new analysis path's intake. The
+  remedy that worked: treat railed samples as missing data -- freeze adaptation across them
+  (`nlms(adapt_mask=...)`) and mute the residual across them with short fades (`clip_mask` +
+  `mute_spans`) -- but capture headroom (lower input gain / float path) is the better first-order
+  product fix.
+
+- **An LTI filter converged on average-level content mis-predicts content at a very different
+  drive level.** The ~0.9 FS calibration chirp survived EC nearly uncancelled -- the converged
+  filter *over*-predicted it by ~4 dB -- because at that drive the speaker/input chain sits in a
+  different gain regime (compression, AGC state) than the music the filter adapted on; the clipped
+  kick transients are the same class at the extreme. When judging any filter fit against a real
+  speaker/mic chain, check the loudest transients and any embedded high-level signals separately
+  from the average-level result, and do not assume EC cleans the emitted-calibration-signal region.
+
+- **Audition-render hygiene is a checklist, not an instinct -- two scripts re-learned it
+  independently.** `render_bleed_mix.py` learned loudness-matching (equal-RMS A/B when coloration
+  is the question) and lead-in trimming; `run_echo_cancel_eval.py` then shipped renders that (a)
+  hard-clipped the float residual at the int16 write (its transient spikes exceeded full scale --
+  extra clicks the DSP never produced) and (b) kept unrepresentative regions (the lead-in with the
+  barely-cancelled chirp; the zero-padded tail where the "residual" is pure -echo_estimate).
+  Checklist for any WAV written for human ears: one shared gain across the comparison set
+  (attenuate-only when absolute levels matter, loudness-matched when coloration is the question --
+  never per-file peak normalization, which silently equalizes the thing being compared); trim
+  regions that do not represent the question being auditioned; record the real levels, trims, and
+  gains in a manifest next to the files; and run a clip census on what was actually written.

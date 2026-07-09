@@ -35,7 +35,7 @@ device via `adb`, not just an emulator or unit test pass.
 Audio focus loss and `ACTION_AUDIO_BECOMING_NOISY` are private listeners triggered by real system
 events — don't try to fake these in an automated test; it gives false confidence.
 
-Three traps that make a green suite lie — **details and worked cases in
+Traps that make a green suite (or a passing metric) lie — **details and worked cases in
 `doc/guides/testing-and-debugging.md`**: (a) a warmup-sensitive hard-fail metric (XRun count,
 first-frame latency) can pass by luck of alphabetical test order — run it cold and in isolation;
 (b) a green suite on one reference-grade device is a favorable-case existence proof, not a
@@ -67,7 +67,19 @@ correctly-offset session without an independent anchor — a direct corollary of
 **discriminate the failure classes before betting on a remedy** (arithmetic that's correct for one class
 says nothing about another class with the same symptom), and **a detector built from the suspect's own
 readings cannot see a failure that shifts all of them together — only an independent anchor can.** Worked
-case: `doc/test2-sweep-results.md` "Multi-read timestamp batch."
+case: `doc/test2-sweep-results.md` "Multi-read timestamp batch." (f) **an energy-summary metric cannot
+see structured error, and a target derived from simulating a remedy as a uniform operation does not
+transfer to the real remedy whose error is concentrated.** An NLMS echo canceller met the ~12 dB RMS
+suppression target the listening test set (that target was simulated by attenuating the bleed uniformly)
+— and its residual was still unlistenable: the error was concentrated in beat-aligned clicks too short
+to move RMS. The root cause was itself a data defect invisible to every prior consumer: the capture's
+ADC railed on kick transients (1,247 full-scale samples), which GCC-PHAT had tolerated silently through
+the entire Test 2 program but a linear canceller cannot model. Two general rules: **validate a
+perceptual deliverable perceptually (or with an artifact-class-aware metric), not only on the summary
+number the target was stated in**, and **census raw inputs for defects (clipping above all) whenever a
+new consumer with a different failure sensitivity starts reading data an old consumer had "validated."**
+Worked case + render-honesty checklist: `doc/guides/offline-dsp.md` "Echo-cancellation and
+audition-render lessons."
 
 ## Diagnose before re-implementing
 
@@ -176,7 +188,9 @@ loudness/headroom, the full-duplex startup-XRun fix, focus-ducking artifacts) ar
   offset, PSR-is-a-fragile-band-sensitive-label-while-offset-is-band-robust (don't re-tune the band
   to chase one cell), the two-opposite-spectral-causes (HF rolloff vs HF rattle), and
   offset-spread-can-be-a-measurement-artifact (decompose with timestamps before blaming the
-  estimator).
+  estimator) — plus the echo-cancellation/audition-render lessons (trap (f) expanded: RMS-passes-
+  while-audio-fails, clip-census-on-new-consumer, LTI-level-dependence, and the render-hygiene
+  checklist for any WAV written for human ears).
 - **`doc/guides/tooling-and-hygiene.md`** — when a Gradle/adb/git/instrumented-test command fails
   with a message that doesn't name the real cause (`--tests`, `MSYS_NO_PATHCONV`, XML-comment `--`,
   `RECORD_AUDIO` grant rule, Espresso vs API 36).
