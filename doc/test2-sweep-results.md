@@ -624,6 +624,48 @@ Final Session A population: 11/11 PASS, correlator error mean −1.12 ms, std 0.
 max |err| 1.35 ms. **Per the staged protocol, Session B (the remaining ~9 arrangements → full
 36-cell map) is now confirmatory, not required for the verdict — run when convenient.**
 
+## Vocal-interference injection study (item 12, 2026-07-08)
+
+The Session A sweep measured bleed alignment against a quiet room; production correlates through a
+loud vocal in the 500–4000 Hz analysis band. `analysis/scripts/run_vocal_injection.py` mixes a dry
+close-mic vocal take (take 2, realistic; cross-checked with take 3) into each Session A capture at a
+swept **in-band** vocal-to-bleed ratio, places the vocal at its performed timing (`tau_v - tau_c`,
+`overdub_analysis/vocal_inject.py`), normalizes the mix (scale-invariant gate — a linear int16 sum
+rails at the captures' existing int16 ceiling, which is a sim artifact not a physical prediction),
+and re-judges the click gate on the mix. The control row (no vocal) reproduces the Session A verdicts
+exactly. Results in `analysis/recapture_session_a/vocal_injection_results.csv` and
+`..._boundary_results.csv` (the +6 to +36 dB boundary sweep).
+
+**Headline: the bleed alignment is essentially immune to the vocal; the failure mode is click
+burial, not alignment pulling.** Across every capture, the click-anchored GCC-PHAT offset stays
+bolted to the bleed peak — unchanged by even 1 sample from +0 to +24 dB in-band ratio (e.g. the
+first baseline capture: gcc −64.77 ms, err −1.35 ms at every ratio through +24 dB). The vocal is
+tempo-correlated with the reference but not waveform-correlated (the `leak_detect` finding), so
+PHAT's phase-weighting does not see it as a coherent peak at the bleed lag — it is in-band noise to
+the correlator, not a competing alignment.
+
+| cell | control | last PASS ratio | failure mode |
+|---|---|---|---|
+| baseline (×9 repeats) | PASS (err ~−1.2 ms) | **+24 dB** | +30 dB: click quality 6 dB < 10 dB floor → no-click |
+| `quiet_far_faceup_pocketed` (min bleed) | PASS | **+24 dB** | +30 dB: click buried |
+| `loud_far_facedown_none` (HF rattle) | PASS | **+18 dB** | +24 dB: click buried (degrades earliest — rattle+vocal combined floor) |
+
+The failure at +24–+30 dB is the vocal **overwhelming the calibration click** (quality collapses
+from ~34 dB → ~6 dB), so the anchor is lost and the row reports `no-click` — not the vocal pulling
+the gcc offset off the peak. At +36 dB the click detector locks onto a vocal-induced false peak
+(click_offset jumps to ~+290 ms) but the quality floor (0–1 dB) correctly rejects it. Two
+consequences for the product: (1) the realistic ratio (−12.2 dB, vocal *below* bleed) has **~36 dB
+of margin** to the click-burial boundary — production is nowhere near failing; (2) if click burial
+ever mattered (it won't, at these levels), the remedy is a louder or pre-roll-isolated calibration
+chirp, not a different alignment algorithm. The diagnostic PSR rises with ratio (0.6 → ~4–5 dB at
++24 dB) as the vocal raises the in-band floor, but the gate doesn't use PSR and the offset is
+unaffected.
+
+**Cross-take robustness:** take 3 (different `tau_v`, different placement) gives the same boundary —
+the result is not take-2-specific. Still open: the synthetic SNR-floor re-measurement with the
+band-limited pipeline + real beatbox reference (the click-train −30 dB floor did not transfer), and
+running against the eventual full Session B matrix once captured.
+
 ## Next steps (post-sweep)
 
 - ~~**Diagnose the GCC-PHAT failure**~~ -- done (see "Band-limited PHAT diagnosis + population

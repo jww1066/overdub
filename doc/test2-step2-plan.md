@@ -695,4 +695,12 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     click-bearing Session A captures at controlled ratios (sweep around the −12.2 dB pin, in-band),
     judge with the click gate (`|gcc − click| ≤ 2 ms`, not PSR), and report where the vocal starts
     pulling the alignment. Re-measure the step-1 synthetic SNR floor with the band-limited pipeline
-    + real beatbox reference at the same time.
+    + real beatbox reference at the same time. **Done (2026-07-08) — see
+    `test2-sweep-results.md` "Vocal-interference injection study."** `overdub_analysis/vocal_inject.py`
+    (in-band RMS, ratio-targeted mix, performed-timing placement; 5 pytest cases) +
+    `analysis/scripts/run_vocal_injection.py`. **Result: the bleed alignment is immune to the vocal
+    — the gcc offset stays bolted to the bleed peak (±0 samples) from +0 to +24 dB in-band ratio;
+    the failure mode at +24–+30 dB is click burial (the vocal overwhelms the calibration anchor,
+    quality < 10 dB → no-click), not alignment pulling.** The realistic −12.2 dB ratio has ~36 dB
+    of margin to the boundary. Cross-take robust (take 3 matches). Still open: the synthetic
+    SNR-floor re-measurement, and Session B once captured.

@@ -46,6 +46,8 @@ env/
 *.aac
 *.ogg
 *.m4a
+*.ac3
+*.opus
 
 # Local sweep capture data (pulled from device with `adb pull`; audio + JSON sidecars + a
 # discard README live here). Never committed -- the durable record is doc/test2-sweep-results.md.
