@@ -415,6 +415,27 @@ a damaged file just as the typed variant can.
   vocal off-rhythm until corrected); (2) the A/B must be loudness-matched (common RMS) so the ear
   judges coloration, not the bleed's ~16 dB level dominance. `AcousticEchoCanceler` quality on
   music content remains unverified — the ~12 dB target is what an EC mechanism would have to meet.
+  **NLMS feasibility measured (2026-07-09): offline NLMS clears the target on the real path.**
+  The prototype (`analysis/src/overdub_analysis/echo_cancel.py`; driver
+  `analysis/scripts/run_echo_cancel_eval.py`; synthetic gate `tests/test_echo_cancel.py`) runs
+  NLMS with the exact clean reference as the far-end signal on a click-gated, aligned Session A
+  capture (a causality guard absorbs the ±2 ms alignment residual). On two baseline captures:
+  **bleed-only 18.4 / 18.3 dB** in-band suppression (500–4000 Hz; room-noise ceiling ~59 dB, so
+  the result is mechanism-limited, not noise-limited), and **14.1 dB with the vocal present**
+  (the product's adaptation condition — the vocal mixed in at the measured −12.2 dB in-band
+  ratio), both clearing the ~12 dB target. The step size is the lever that got the vocal-present
+  case over the bar: near-end signal costs adaptation misadjustment proportional to mu
+  (10.6 dB at mu 0.5, 11.8 at 0.15, 14.1 at 0.05 with extra passes buying back convergence) —
+  precisely the trade *offline* EC gets for free, since there is no convergence deadline; this is
+  the concrete advantage over the real-time `AcousticEchoCanceler` path. Per-second suppression
+  varies with content (7.5–24.9 dB; quiet passages suppress less) — the take-total in-band number
+  is the target-comparable quantity. Caveats, all inherited favorable-case: one device (Pixel 10),
+  two captures of one cell, one vocal take, and the vocal-present run is a *constructed* stem
+  (a real simultaneous vocal+bleed capture could interact with mic DSP in ways a mix cannot show).
+  Remaining EC work: audition `residual_bleed_only.wav` / `residual_with_vocal.wav`
+  (`analysis/echo_cancel_eval/`, gitignored) against the listening test's simulated ec12 rung to
+  confirm 14–18 dB of *real* NLMS reads as clean as 12 dB of arithmetic attenuation did, and the
+  eventual on-device (Kotlin/C++) port with the synthetic tests as port-correctness fixtures.
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

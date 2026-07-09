@@ -74,3 +74,6 @@ analysis/listening_test/
 # Calibration-signal bake-off renders + audition WAVs (regenerate with
 # analysis/scripts/validate_calibration_candidates.py).
 analysis/calibration_bakeoff/
+# NLMS echo-cancellation eval outputs (regenerate with
+# analysis/scripts/run_echo_cancel_eval.py).
+analysis/echo_cancel_eval/

@@ -24,20 +24,37 @@ design-summary.md "Chain-of-forwarding alignment error").
 | 3 — multi-hop error | **Conditional PASS** (closed-form arithmetic) | Conditions: cross-device bias ≤ ~±8 ms (needs device #2); median-of-5 reads + a per-capture rejection gate |
 
 Remaining work in priority order (updated 2026-07-09 — the bleed-mix listening test is **done**:
-echo cancellation is v1 work, suppression target ~12 dB; see design-summary.md "Echo cancellation
-for v1". The headset-gated items are also **done**: the Tier-2 override test **passed**, so
-`setDeviceId()` can demote an active USB headset and the forced-speaker-chirp direction is viable
-on this device, and the 13(c) headset-route batch is measured — see `test2-sweep-results.md`
-"Headset-route session"): (1) the calibration-signal bake-off — **synthetic validation done
-2026-07-09** (3 musical candidates all meet the hard requirements; A/B table + verdict in
-design-summary.md "Beat-period aliasing"; code in `analysis/src/overdub_analysis/calibration_candidates.py`,
-gate in `validate_calibration_candidates.py` + `tests/test_calibration_candidates.py`); **the
-log-sweep-riser is selected as the emitted calibration signal** (post-audition, 2026-07-09; the
-downbeat and shaker-burst remain documented fallbacks); **one on-device capture of the riser
-remains** as the manual checkpoint (Pixel 10 + adb); (2) Test 2 Session B confirmatory re-capture;
-(3) Tests 1 + 1a when the rig arrives — the headphone-route honesty check is the most consequential
-remaining measurement (see Test 1a); (4) cross-device bias subtraction + the on-device AGC tone probe
-when a second device exists.
+echo cancellation is v1 work, suppression target ~12 dB, and the **NLMS feasibility prototype now
+clears that target on real captures** (bleed-only 18.4/18.3 dB, vocal-present 14.1 dB in-band;
+see design-summary.md "Echo cancellation for v1"). The headset-gated items are also **done**: the
+Tier-2 override test **passed**, so `setDeviceId()` can demote an active USB headset and the
+forced-speaker-chirp direction is viable on this device, and the 13(c) headset-route batch is
+measured — see `test2-sweep-results.md` "Headset-route session"):
+
+1. **The riser on-device capture** — the calibration-signal bake-off's one remaining step
+   (synthetic validation + audition done 2026-07-09; the **log-sweep-riser is selected**, with the
+   accented-downbeat and shaker-burst as documented fallbacks; code in
+   `analysis/src/overdub_analysis/calibration_candidates.py`, gate in
+   `validate_calibration_candidates.py` + `tests/test_calibration_candidates.py`). The manual
+   checkpoint (Pixel 10 + adb) has two prep pieces that don't need the device, neither of which
+   exists yet: (a) a reference-asset generation path that mixes the riser at a known sample
+   position (the riser analogue of `prepend_calibration_click.py`, driven by
+   `SELECTED_CANDIDATE_FACTORY`), and (b) a matched-filter detection/eval script for the riser
+   template (the analogue of `detect_calibration_click.py`, using the compressed-pulse-width
+   quality exclusion, not the template length). Then rebuild the APK with the new asset and run
+   the capture: pass bar is >= 10 dB matched-filter detection quality and <= 2 ms onset recovery
+   through the real speaker->mic path.
+2. **Test 2 Session B** confirmatory re-capture (device time, no code work — can share the same
+   device session as item 1).
+3. **Tests 1 + 1a when the rig arrives** — the headphone-route honesty check is the most
+   consequential remaining measurement (see Test 1a).
+4. **Cross-device work** when a second device exists: bias subtraction (Test 3's ±8 ms gate) + the
+   on-device two-gain AGC tone probe.
+
+Parallel (unblocked, no device needed): the remaining echo-cancellation work — audition the real
+NLMS residuals against the listening test's simulated ec12 rung (renders in
+`analysis/echo_cancel_eval/`, gitignored; regenerate with
+`analysis/scripts/run_echo_cancel_eval.py`).
 
 ## Why these two, and not the others
 
@@ -468,7 +485,10 @@ variant of `run_vocal_injection.py` measures the actual quantity cheaply.
 ## Explicitly out of scope for this prototype
 
 - Lead-in / count-in UX
-- Echo cancellation (NLMS or `AcousticEchoCanceler`) — deferred pending Test 2 results
+- Echo cancellation *on-device* (the Kotlin/C++ NLMS port, or `AcousticEchoCanceler` evaluation) —
+  EC itself is decided v1 work (bleed-mix listening test, 2026-07-09) and the offline NLMS
+  feasibility prototype clears the ~12 dB target (design-summary.md "Echo cancellation for v1");
+  the on-device port stays out of prototype scope
 - Sharing/forwarding flow
 - Pre-roll buffer sizing
 - Onset detection
