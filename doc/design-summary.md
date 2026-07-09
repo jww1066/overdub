@@ -436,6 +436,30 @@ a damaged file just as the typed variant can.
   (`analysis/echo_cancel_eval/`, gitignored) against the listening test's simulated ec12 rung to
   confirm 14–18 dB of *real* NLMS reads as clean as 12 dB of arithmetic attenuation did, and the
   eventual on-device (Kotlin/C++) port with the synthetic tests as port-correctness fixtures.
+  **First audition + artifact diagnosis (2026-07-09): "a lot of clicks and hiss" — measured, three
+  causes, two of them real findings** (`analysis/scripts/diagnose_ec_residual.py` separates the
+  classes): (1) **The clicks are beat-aligned capture-saturation residuals.** The Session A
+  baseline capture itself is clipped — 1,247 full-scale samples in the raw device WAV, and every
+  broadband click event in it sits on a reference beat onset (255/255) — the input chain rails on
+  beatbox kick transients at conversational volume. Clipping is a nonlinearity a linear FIR cannot
+  model, so each clipped kick leaves a near-full-scale click in the residual (109/109 residual
+  clicks beat-aligned). This is capture saturation, not filter failure; the RMS suppression
+  numbers stand (the clicks are too short to move RMS) but perceptual acceptability of real EC is
+  still open. Product options it raises: capture headroom (lower input gain, or a float/24-bit
+  capture path), clip-aware EC (freeze adaptation and interpolate the residual across railed
+  samples), or accepting per-beat residuals. GCC-PHAT alignment, notably, passed *through* this
+  clipping all along — the correlator is robust to it; EC is not. (2) **The hiss is the known
+  uncorrelated-HF bleed coloration, solo-exposed.** The capture's 8–16 kHz RMS (~3,680) dwarfs its
+  500–4,000 Hz in-band RMS (~616); NLMS removes the *correlated* 16–20 dB of that HF, and what
+  remains (bleed-path HF distortion + room noise) is unremovable by any reference-driven EC — the
+  listening test's "bleed degrades HF" finding heard without the mix masking it. (3) **Two
+  rendering bugs in the eval script compounded the audition, now fixed:** residual WAVs were
+  written unscaled and hard-clipped at int16 (now one shared attenuate-only gain across the render
+  set), and renders kept the lead-in, where the calibration chirp survives EC nearly uncancelled —
+  the filter *over*-predicts it by ~4 dB because the ~0.9 FS chirp drives the speaker/input chain
+  into a different gain regime than the music the filter converged on (level dependence; its own
+  small finding: don't assume EC cleans the emitted-calibration-signal region). Renders are now
+  trimmed to the content body by default; re-audition after regenerating.
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

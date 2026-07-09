@@ -160,6 +160,14 @@ def main() -> int:
     parser.add_argument("--max-offset-ms", type=float, default=300.0)
     parser.add_argument("--anchor-half-width-ms", type=float, default=90.0)
     parser.add_argument("--tolerance-ms", type=float, default=2.0)
+    parser.add_argument(
+        "--keep-lead-in",
+        action="store_true",
+        help="keep the 1 s calibration lead-in in the renders (default: trim it -- "
+        "the chirp survives EC nearly uncancelled because its ~0.9 FS level "
+        "drives the path into a gain regime the music-converged filter "
+        "doesn't model, and auditioning that reads as a mechanism failure)",
+    )
     parser.add_argument("--out-dir", default="echo_cancel_eval")
     args = parser.parse_args()
 
@@ -216,10 +224,31 @@ def main() -> int:
     # d[i] = capture[i + tau - guard]: the reference grid delayed by `guard`,
     # so the echo path sits at delay ~guard in the filter span.
     d = shift_to_reference_clock(capture, tau - guard, len(ref))
-    # Content region on d's grid (skip the lead-in; the chirp is trivially
-    # cancellable and would flatter the number).
+    # Content region on d's grid: skip the lead-in -- NOT because the chirp is
+    # trivially cancellable (measured 2026-07-09: it is barely cancelled at
+    # all; played at ~0.9 FS it drives the speaker/input chain into a
+    # different gain regime than the music the filter converges on, a
+    # level-dependence no LTI filter models) -- but because it is
+    # unrepresentative of the content the suppression target is about. End
+    # the region where the shifted capture runs out of source samples (beyond
+    # that d is zeros and the residual is pure -echo_estimate, an artifact).
+    off = tau - guard
+    cov_end = max(0, -off) + max(
+        0, min(len(capture) - max(0, off), len(ref) - max(0, -off))
+    )
     content = round(rate * LEAD_IN_S) + guard
-    body = slice(content, None)
+    body = slice(content, cov_end)
+
+    # Capture-saturation census: a clipped transient is a nonlinearity a
+    # linear EC cannot model, so each one leaves a click-shaped residual no
+    # amount of adaptation removes (first audition's "clicks", 2026-07-09).
+    clipped = int(np.sum(np.abs(capture) >= 32767.0))
+    if clipped:
+        say(f"WARN: capture contains {clipped} full-scale samples -- the on-device "
+            "input chain clipped on transients. RMS suppression below is honest, "
+            "but the residual will carry a click at every clipped beat (capture "
+            "saturation, not filter failure); diagnose_ec_residual.py measures this.")
+        say()
 
     # --- 3. The EC ceiling: the capture's own room-noise floor ----------------
     # d[0 : click onset + guard] predates the click: room noise only. NLMS
@@ -253,9 +282,11 @@ def main() -> int:
     say(f"bleed-only verdict: {verdict} ({sup_inband:.1f} dB vs {args.target_db:.0f} dB target)")
     say()
 
-    _write_wav_mono16(out_dir / "capture_aligned.wav", d, rate)
-    _write_wav_mono16(out_dir / "residual_bleed_only.wav", res.residual, rate)
-    _write_wav_mono16(out_dir / "echo_estimate.wav", res.echo_estimate, rate)
+    renders: dict[str, np.ndarray] = {
+        "capture_aligned.wav": d,
+        "residual_bleed_only.wav": res.residual,
+        "echo_estimate.wav": res.echo_estimate,
+    }
 
     # --- 5. Vocal-present run (the product's adaptation condition) ------------
     vocal_path = Path(args.vocal) if args.vocal else None
@@ -292,14 +323,39 @@ def main() -> int:
             verdict_v = "PASS" if sup_v >= args.target_db else "SHORT OF TARGET"
             say(f"vocal-present verdict: {verdict_v} ({sup_v:.1f} dB vs "
                 f"{args.target_db:.0f} dB target)")
-            _write_wav_mono16(out_dir / "stem_with_vocal.wav", stem, rate)
-            _write_wav_mono16(out_dir / "residual_with_vocal.wav", res_v.residual, rate)
+            renders["stem_with_vocal.wav"] = stem
+            renders["residual_with_vocal.wav"] = res_v.residual
     else:
         say(f"vocal-present run skipped (no vocal take at {args.vocal!r})")
     say()
+
+    # --- 6. Renders for audition ----------------------------------------------
+    # Trimmed to the body region by default: the lead-in's chirp survives EC
+    # almost uncancelled (level-dependent path -- see the alignment comment),
+    # and past the capture's coverage the "residual" is pure -echo_estimate;
+    # both would read as artifacts of the mechanism when they are artifacts of
+    # the rendering. One shared, attenuate-only gain keeps the files honestly
+    # comparable (capture vs residual level difference IS the finding) while
+    # preventing the int16 write from hard-clipping the residual's transient
+    # spikes into extra clicks.
+    lo_cut = 0 if args.keep_lead_in else content
+    trimmed = {name: s[lo_cut:cov_end] for name, s in renders.items()}
+    peak = max(float(np.max(np.abs(s))) for s in trimmed.values())
+    gain = min(1.0, (0.89 * 32767.0) / peak) if peak > 0 else 1.0
+    say(f"renders (trimmed to {lo_cut / rate:.2f}..{cov_end / rate:.2f} s, shared gain "
+        f"{20.0 * np.log10(gain):+.1f} dB):")
+    for name, s in trimmed.items():
+        final = gain * s
+        _write_wav_mono16(out_dir / name, final, rate)
+        peak_db = 20.0 * np.log10(max(float(np.max(np.abs(final))), 1.0) / 32767.0)
+        rms_db = 20.0 * np.log10(max(float(np.sqrt(np.mean(final**2))), 1.0) / 32767.0)
+        say(f"  {name:<26} peak {peak_db:+6.1f}  rms {rms_db:+6.1f} dBFS")
+    say()
     say("Audition: residual_bleed_only.wav against capture_aligned.wav (and the")
-    say("listening test's mix_product_ec12 rung). Record the outcome in")
-    say("doc/design-summary.md (echo-cancellation item).")
+    say("listening test's mix_product_ec12 rung). Clicks at beat onsets are the")
+    say("capture's own clipped transients (see WARN above, if any); steady hiss is")
+    say("the bleed's uncorrelated HF + room noise -- unremovable by reference-driven")
+    say("EC. Record the outcome in doc/design-summary.md (echo-cancellation item).")
 
     (out_dir / "eval_manifest.txt").write_text("\n".join(report) + "\n")
     print(f"\nmanifest: {out_dir / 'eval_manifest.txt'}")
