@@ -57,6 +57,8 @@ import numpy as np
 from overdub_analysis.bleed_mix import shift_to_reference_clock
 from overdub_analysis.calibration_click import LEAD_IN_S, PRE_SILENCE_S, detect_click
 from overdub_analysis.echo_cancel import (
+    clip_mask,
+    mute_spans,
     nlms,
     suppression_db,
     suppression_profile,
@@ -161,6 +163,19 @@ def main() -> int:
     parser.add_argument("--anchor-half-width-ms", type=float, default=90.0)
     parser.add_argument("--tolerance-ms", type=float, default=2.0)
     parser.add_argument(
+        "--clip-pad-ms",
+        type=float,
+        default=3.0,
+        help="widen each capture-saturation span this much per side (the input "
+        "chain's filtering smears clipping past the flat top)",
+    )
+    parser.add_argument(
+        "--clip-fade-ms",
+        type=float,
+        default=2.0,
+        help="raised-cosine fade length into/out of each muted saturation span",
+    )
+    parser.add_argument(
         "--keep-lead-in",
         action="store_true",
         help="keep the 1 s calibration lead-in in the renders (default: trim it -- "
@@ -239,15 +254,28 @@ def main() -> int:
     content = round(rate * LEAD_IN_S) + guard
     body = slice(content, cov_end)
 
-    # Capture-saturation census: a clipped transient is a nonlinearity a
-    # linear EC cannot model, so each one leaves a click-shaped residual no
-    # amount of adaptation removes (first audition's "clicks", 2026-07-09).
+    # Capture-saturation handling: a railed sample is missing data -- a
+    # nonlinearity a linear EC cannot model -- so left alone every clipped
+    # beat leaves a click in the residual (first audition, 2026-07-09). The
+    # clip-aware treatment: freeze adaptation across railed spans (adapting on
+    # the rail injects the clipping error into the weights) and mute the
+    # residual across them with short fades (the distortion there is
+    # uncancellable and the buried content unrecoverable; ~ms of smooth
+    # silence is the least-artifact rendering).
+    pad = round(args.clip_pad_ms * 1e-3 * rate)
+    fade = round(args.clip_fade_ms * 1e-3 * rate)
+    mask_c = clip_mask(capture, pad=pad)
     clipped = int(np.sum(np.abs(capture) >= 32767.0))
+    mask_d = shift_to_reference_clock(mask_c.astype(np.float64), tau - guard, len(ref)) > 0.5
+    adapt_mask = ~mask_d if mask_d.any() else None
     if clipped:
+        n_spans = int(np.sum(np.diff(mask_d.astype(np.int8)) == 1) + (1 if mask_d[0] else 0))
         say(f"WARN: capture contains {clipped} full-scale samples -- the on-device "
-            "input chain clipped on transients. RMS suppression below is honest, "
-            "but the residual will carry a click at every clipped beat (capture "
-            "saturation, not filter failure); diagnose_ec_residual.py measures this.")
+            "input chain clipped on transients (capture saturation, not filter "
+            f"failure). Clip-aware treatment active: adaptation frozen and residual "
+            f"muted across {n_spans} spans, {1000.0 * np.sum(mask_d) / rate:.0f} ms "
+            f"total (pad {args.clip_pad_ms:.0f} ms, fades {args.clip_fade_ms:.0f} ms); "
+            "*_unrepaired.wav renders keep the raw residual for A/B.")
         say()
 
     # --- 3. The EC ceiling: the capture's own room-noise floor ----------------
@@ -264,19 +292,25 @@ def main() -> int:
 
     # --- 4. Bleed-only NLMS run ------------------------------------------------
     say("=== bleed-only run (Session A capture as-is) ===")
-    res = nlms(ref, d, num_taps=args.num_taps, mu=args.mu, passes=args.passes)
-    sup_inband = suppression_db(d[body], res.residual[body], rate, args.lo, args.hi)
+    res = nlms(
+        ref, d, num_taps=args.num_taps, mu=args.mu, passes=args.passes,
+        adapt_mask=adapt_mask,
+    )
+    residual = mute_spans(res.residual, mask_d, fade=fade)
+    sup_inband = suppression_db(d[body], residual[body], rate, args.lo, args.hi)
+    sup_raw = suppression_db(d[body], res.residual[body], rate, args.lo, args.hi)
     broadband = 20.0 * np.log10(
         float(np.sqrt(np.mean(d[body] ** 2)))
-        / float(np.sqrt(np.mean(res.residual[body] ** 2)))
+        / float(np.sqrt(np.mean(residual[body] ** 2)))
     )
     say(f"in-band suppression ({args.lo:.0f}-{args.hi:.0f} Hz): {sup_inband:.1f} dB "
-        f"(target {args.target_db:.0f} dB)  |  broadband: {broadband:.1f} dB")
+        f"(target {args.target_db:.0f} dB; before clip repair {sup_raw:.1f} dB)  |  "
+        f"broadband: {broadband:.1f} dB")
     tail = tail_energy_fraction(res.impulse_response)
     say(f"path-estimate tail energy (last 10% of taps): {100.0 * tail:.1f}% "
         f"({'OK' if tail < 0.05 else 'RAISE num_taps -- the reverb tail is truncated'})")
     say("per-second in-band suppression (convergence honesty):")
-    for t, db in suppression_profile(d[body], res.residual[body], rate, args.lo, args.hi):
+    for t, db in suppression_profile(d[body], residual[body], rate, args.lo, args.hi):
         say(f"  {t:5.1f}s  {db:6.1f} dB")
     verdict = "PASS" if sup_inband >= args.target_db else "SHORT OF TARGET"
     say(f"bleed-only verdict: {verdict} ({sup_inband:.1f} dB vs {args.target_db:.0f} dB target)")
@@ -284,9 +318,11 @@ def main() -> int:
 
     renders: dict[str, np.ndarray] = {
         "capture_aligned.wav": d,
-        "residual_bleed_only.wav": res.residual,
+        "residual_bleed_only.wav": residual,
         "echo_estimate.wav": res.echo_estimate,
     }
+    if mask_d.any():
+        renders["residual_bleed_only_unrepaired.wav"] = res.residual
 
     # --- 5. Vocal-present run (the product's adaptation condition) ------------
     vocal_path = Path(args.vocal) if args.vocal else None
@@ -313,7 +349,15 @@ def main() -> int:
             stem = d + scale * vocal_al
             say(f"vocal: {vocal_path} placed at stream_offset {som:+.2f} ms, "
                 f"scaled to {args.vocal_ratio_db:+.1f} dB in-band vs bleed")
-            res_v = nlms(ref, stem, num_taps=args.num_taps, mu=args.mu, passes=args.passes)
+            res_v = nlms(
+                ref, stem, num_taps=args.num_taps, mu=args.mu, passes=args.passes,
+                adapt_mask=adapt_mask,
+            )
+            # The same clip repair mutes the vocal across the railed spans too
+            # (the bleed's clipping corrupted those samples of the shared mic
+            # signal); the spans total ~tens of ms across a take, entered and
+            # left with fades.
+            residual_v = mute_spans(res_v.residual, mask_d, fade=fade)
             # Bleed suppression specifically: the echo estimate is judged against
             # the bleed component we know exactly (d), not the stem.
             sup_v = suppression_db(d[body], (d - res_v.echo_estimate)[body], rate, args.lo, args.hi)
@@ -324,7 +368,9 @@ def main() -> int:
             say(f"vocal-present verdict: {verdict_v} ({sup_v:.1f} dB vs "
                 f"{args.target_db:.0f} dB target)")
             renders["stem_with_vocal.wav"] = stem
-            renders["residual_with_vocal.wav"] = res_v.residual
+            renders["residual_with_vocal.wav"] = residual_v
+            if mask_d.any():
+                renders["residual_with_vocal_unrepaired.wav"] = res_v.residual
     else:
         say(f"vocal-present run skipped (no vocal take at {args.vocal!r})")
     say()
@@ -352,10 +398,11 @@ def main() -> int:
         say(f"  {name:<26} peak {peak_db:+6.1f}  rms {rms_db:+6.1f} dBFS")
     say()
     say("Audition: residual_bleed_only.wav against capture_aligned.wav (and the")
-    say("listening test's mix_product_ec12 rung). Clicks at beat onsets are the")
-    say("capture's own clipped transients (see WARN above, if any); steady hiss is")
-    say("the bleed's uncorrelated HF + room noise -- unremovable by reference-driven")
-    say("EC. Record the outcome in doc/design-summary.md (echo-cancellation item).")
+    say("listening test's mix_product_ec12 rung). Beat-aligned clicks are the")
+    say("capture's own clipped transients -- muted by the clip repair in the main")
+    say("renders; *_unrepaired.wav keeps them for A/B. Steady hiss is the bleed's")
+    say("uncorrelated HF + room noise -- unremovable by reference-driven EC.")
+    say("Record the outcome in doc/design-summary.md (echo-cancellation item).")
 
     (out_dir / "eval_manifest.txt").write_text("\n".join(report) + "\n")
     print(f"\nmanifest: {out_dir / 'eval_manifest.txt'}")

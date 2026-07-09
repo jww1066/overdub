@@ -53,6 +53,8 @@ from overdub_analysis.vocal_inject import inband_rms
 __all__ = [
     "NlmsResult",
     "nlms",
+    "clip_mask",
+    "mute_spans",
     "suppression_db",
     "suppression_profile",
     "tail_energy_fraction",
@@ -91,6 +93,7 @@ def nlms(
     mu: float = 0.5,
     eps_rel: float = 1e-3,
     passes: int = 2,
+    adapt_mask: np.ndarray | None = None,
 ) -> NlmsResult:
     """Cancel the reference's echo out of ``capture`` via offline NLMS.
 
@@ -115,6 +118,13 @@ def nlms(
     passes :
         Adaptation passes over the take, weights carried across passes; the
         returned signals come from the final pass.
+    adapt_mask :
+        Optional per-sample boolean array (same length); where ``False`` the
+        weight update is skipped for that sample. Use for samples known to be
+        corrupted -- e.g. capture-saturation spans from :func:`clip_mask`,
+        where the observed ``d[n]`` is the ADC rail rather than the echo, so
+        adapting on it injects the clipping error into the weights. The
+        residual/echo estimate are still computed at every sample.
     """
     x = np.asarray(reference, dtype=np.float64).ravel()
     d = np.asarray(capture, dtype=np.float64).ravel()
@@ -128,6 +138,12 @@ def nlms(
         raise ValueError(f"mu must be in (0, 2) (got {mu})")
     if passes < 1:
         raise ValueError(f"passes must be >= 1 (got {passes})")
+    if adapt_mask is not None:
+        adapt_mask = np.asarray(adapt_mask, dtype=bool).ravel()
+        if adapt_mask.size != x.size:
+            raise ValueError(
+                f"adapt_mask ({adapt_mask.size}) and signal ({x.size}) lengths differ"
+            )
 
     n_samples = x.size
     # xpad lets the window at sample n be xpad[n : n + num_taps], i.e.
@@ -146,7 +162,8 @@ def nlms(
             win = xpad[n : n + num_taps]
             yn = float(np.dot(w, win))
             en = d[n] - yn
-            w += (mu * en / (eps + norm)) * win
+            if adapt_mask is None or adapt_mask[n]:
+                w += (mu * en / (eps + norm)) * win
             y[n] = yn
             e[n] = en
             if n + 1 < n_samples:
@@ -160,6 +177,62 @@ def nlms(
         impulse_response=w[::-1].copy(),
         passes=passes,
     )
+
+
+def clip_mask(
+    x: np.ndarray, *, threshold: float = 32767.0, pad: int = 0
+) -> np.ndarray:
+    """Boolean mask of samples at/beyond the ADC rail, padded ``pad`` samples each side.
+
+    A railed sample is one the input chain saturated: the observed value is
+    the rail, not the acoustic signal, so it is *missing data* -- adaptation
+    on it injects error into the weights, and the residual across it is
+    clipping distortion no linear filter can cancel. ``pad`` widens each span
+    to cover the smeared edges the capture chain's filtering spreads around
+    the flat top (a few ms at 48 kHz).
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    if pad < 0:
+        raise ValueError(f"pad must be >= 0 (got {pad})")
+    mask = np.abs(x) >= threshold
+    if pad > 0 and mask.any():
+        # Dilate by `pad`: a sample is masked if any railed sample is within pad.
+        kernel = np.ones(2 * pad + 1)
+        mask = np.convolve(mask.astype(np.float64), kernel, mode="same") > 0.0
+    return mask
+
+
+def mute_spans(x: np.ndarray, mask: np.ndarray, *, fade: int) -> np.ndarray:
+    """Mute ``x`` across masked spans with raised-cosine ramps of ``fade`` samples.
+
+    The clip-repair step for a residual: across capture-saturation spans the
+    residual is clipping distortion (the click the first audition heard), and
+    the true reference-uncorrelated content underneath is unrecoverable -- so
+    the least-artifact rendering is silence, entered and left smoothly. The
+    fades extend *outside* the masked spans, so masked samples are fully
+    muted and the surrounding signal is otherwise preserved.
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    mask = np.asarray(mask, dtype=bool).ravel()
+    if mask.size != x.size:
+        raise ValueError(f"mask ({mask.size}) and signal ({x.size}) lengths differ")
+    if fade < 0:
+        raise ValueError(f"fade must be >= 0 (got {fade})")
+    if not mask.any():
+        return x.copy()
+    if fade == 0:
+        return np.where(mask, 0.0, x)
+    # Smooth the mask into an envelope: convolving with a normalized Hann
+    # spreads each span's edge over `fade` samples on each side; envelope =
+    # 1 - min(1, spread) is 0 across the span and ramps smoothly outside it.
+    kernel = np.hanning(2 * fade + 3)[1:-1]
+    kernel /= kernel.sum()
+    spread = np.convolve(mask.astype(np.float64), kernel, mode="same")
+    # Scale so every masked sample reaches full mute (spans shorter than the
+    # kernel would otherwise only be partially attenuated).
+    spread = spread / max(float(spread[mask].min()), 1e-12)
+    env = 1.0 - np.minimum(1.0, spread)
+    return x * env
 
 
 def suppression_db(

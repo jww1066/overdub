@@ -460,6 +460,23 @@ a damaged file just as the typed variant can.
   into a different gain regime than the music the filter converged on (level dependence; its own
   small finding: don't assume EC cleans the emitted-calibration-signal region). Renders are now
   trimmed to the content body by default; re-audition after regenerating.
+  **Clip-aware EC built and measured (2026-07-09, second audition still heard the clicks —
+  expected, since down-scaling can't un-clip a railed waveform).** A railed sample is missing
+  data, so the treatment is: freeze adaptation across railed spans (adapting on the rail injects
+  the clipping error into the weights) and mute the residual across them with 2 ms fades
+  (`clip_mask` / `mute_spans` in `echo_cancel.py`, `adapt_mask` on `nlms`; on by default in the
+  eval whenever the capture rails). On the baseline capture: 55 spans, 626 ms total muted (~4% of
+  the take, 3 ms pad per side); the residual's peak dropped from −4.5 to **−26.5 dBFS** (the
+  residual's peaks were entirely saturation clicks — now ~16 dB *below* the capture's peaks
+  instead of 6 dB above), and in-band suppression improved to **20.4 dB bleed-only / 14.0 dB
+  vocal-present** (from 18.2 with the raw residual). Beat-aligned residue outside the railed spans
+  survives at the ~22 dB-quieter level — the un-railed portion of each loud transient, the same
+  level-dependence class as the chirp finding; whether it still reads as clicks is a listening
+  judgment, and `--clip-pad-ms` widens the muting if so (`*_unrepaired.wav` renders keep the raw
+  residual for A/B). Product corollary: clip-aware EC needs the raw capture's railed-sample
+  positions, which the app has at capture time — but capture headroom (lower input gain / float
+  path) remains the better first-order fix, since muting discards the performer's vocal across
+  those spans too (~tens of ms per take at this rate — small, but nonzero).
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a
