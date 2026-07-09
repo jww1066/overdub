@@ -161,7 +161,21 @@ attribution because the only cross-run referents available jitter by as much as 
 That makes plan step 2's multi-read logging load-bearing for the glitch-vs-session-state
 question (its frame-vs-time-line discriminator needs no cross-run referent); median-of-5 stays
 the leading candidate on "no evidence the glitch persists" + step 2's upcoming measurement,
-not on a proven single-read glitch.
+not on a proven single-read glitch. **Multi-read batch update (2026-07-08,
+`test2-sweep-results.md` "Multi-read timestamp batch"):** step 2 ran — 43 baseline captures on
+the Pixel 10, ~11 `getTimestamp` reads each. The glitch-vs-session-state question is now settled
+by measurement, and the answer is **median-of-5 is not a blanket fix.** Of 2 anomalous runs, one
+was an isolated timestamp glitch the median recovered (the click-anchored alignment still
+PASSED) — median-of-k validated for that class. The other was a **session-level desync**: the
+input clock read ~+35 ms off for the whole session, the audio itself misaligned 78.67 ms (click
+FAIL), the median wrong too, and it was silent to every XRun/dropped/route gate — only the
+independent click anchor caught it. A uniform whole-session offset shift is invisible to a
+line-fit consistency check as well (no off-line points, just a shifted intercept), so the only
+detector for the session-level class is an independent anchor: the click on the speaker route,
+the loopback rig on the headphone route. So the product's timestamp mechanism needs
+median-of-k **plus** a per-capture rejection gate; on the headphone route (no click, no runtime
+rig) the session-level class would be silent, which is the concrete failure Test 1a's rig
+honesty validation must de-risk before the product trusts `getTimestamp` blind.
 
 ## Chain-of-forwarding alignment error
 

@@ -228,7 +228,26 @@ on a one-observation outlier rate. Three steps, none needing the rig:
    much lower), (ii) the glitch-vs-session-state discrimination that decides whether median-of-k
    is a valid remedy at all, (iii) a large-N read-noise std replacing the 8-point 0.25 ms
    estimate, and (iv) a bigger stream−click residual population — the click being a rig-free
-   honesty check on the speaker route.
+   honesty check on the speaker route. **Done (2026-07-08, `test2-sweep-results.md` "Multi-read
+   timestamp batch"): 43 baseline captures on the Pixel 10 (11 reads/session).** (i) Outlier
+   rate: 2/43 runs (4.7%) with a timestamp anomaly — lower than the 1/9 the binomial feared, but
+   a thin estimate. (ii) **The discrimination went against the clean single-read-glitch
+   hypothesis: the 2 anomalies are two *different* classes.** One was an isolated timestamp
+   glitch (click-anchored alignment PASSED; median of 11 reads recovered the true offset despite
+   the single read being the +24.89 ms outlier) — median-of-k works for this class. The other was
+   a **session-level desync**: the input clock read ~+35 ms off for the whole session, the audio
+   itself misaligned 78.67 ms (click FAIL), the median wrong too, and 0 XRuns/0 dropped/correct
+   route — silent to every standard gate, caught only by the click. **Median-of-k cannot fix the
+   session-level class, so it is not a blanket remedy; it must be paired with a per-capture
+   rejection/consistency gate.** A uniform whole-session offset shift (2 clean runs sat 3 ms off
+   the basis with zero off-line reads) is invisible to the line-fit flagger, so line-fit
+   consistency is not a substitute for the independent anchor either. (iii) Read-noise std over
+   the 39 on-basis clean runs ~0.4 ms (the multi-read median collapses the item-10 5.5 ms scare
+   to well under 1 ms once anomalous runs are gated out). (iv) The stream−click residual
+   population confirms a stable ~−15.1 ms basis on clean runs and is the rig-free speaker-route
+   honesty check — but it also shows the headphone route (no click, no runtime rig) would leave
+   the session-level class silent, which is the concrete failure the rig's honesty validation
+   must de-risk.
 3. **Headset-route variance — only if a wired USB-C headset is on hand.** Variance/outlier
    statistics on the exact route this test targets need only the route active; the click won't
    anchor (no bleed), but pure timestamp statistics don't need it. Honesty still waits for the
@@ -557,7 +576,22 @@ mechanism, *conditional on* (a) cross-device bias differences staying within ~±
 stated requirement on unmeasured hardware, not an assumption — and (b) the timestamp mechanism
 taking ≥5 reads per session with a median (or equivalent outlier rejection). Once a second
 device's bias is measured, the bias gate is a **subtraction** (|b_i − b_j| against the budget),
-not a re-simulation.
+not a re-simulation. **Update (2026-07-08, item 13 (b) batch):** condition (b) is now partly
+measured and needs sharpening. A 43-capture multi-read batch (`test2-sweep-results.md`
+"Multi-read timestamp batch") confirmed median-of-k recovers the true offset on the *isolated-
+glitch* class (1/43 runs: a single/few-read timestamp glitch the median ignored) — so median-of-5
+is validated for that class. But the same batch produced 1/43 runs of a **session-level desync**
+the median *cannot* fix (the input clock was offset ~+35 ms for the whole session, the audio
+itself misaligned 78.67 ms, the median wrong too, and it was silent to XRun/dropped/route gates
+— only the click caught it). So median-of-5 is **not a blanket fix**: it must be paired with a
+per-capture rejection/consistency gate (the click-anchored alignment gate on the speaker route;
+an equivalent the rig validates on the headphone route). The binomial knife-edge in point 3
+assumed the outlier was a single-read glitch; 13 (b) measured that ~half (1 of 2) of the
+anomalies were a different, median-unfixable class, so the chain-failure rate the binomial
+computes is an underestimate unless the per-capture gate removes the session-level class upstream
+of the chain — which the click gate does on the speaker route. The headphone route has no click,
+so the rig's honesty validation remains the instrument that decides whether the session-level
+class occurs there.
 
 **Assessment reconciliation (2026-07-08, `test3-monte-carlo-assessment.md`).** All three headline
 numbers are closed-form, and the simulation reproduces them exactly: the noise result is the

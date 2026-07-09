@@ -146,4 +146,20 @@ Java_com_overdub_harness_NativeBridge_nativeGetInputTimestampNanos(JNIEnv * /* e
     return gEngine ? static_cast<jlong>(gEngine->inputTimestampNanos()) : -1;
 }
 
+// --- Multi-read timestamp series (test2-step2-plan.md item 13 (b)) ---
+
+JNIEXPORT jlongArray JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetTimestampSamples(JNIEnv *env, jobject /* this */) {
+    if (!gEngine) return env->NewLongArray(0);
+    auto flat = gEngine->timestampSamplesFlat();
+    auto len = static_cast<jsize>(flat.size());
+    jlongArray arr = env->NewLongArray(len);
+    if (arr != nullptr && len > 0) {
+        std::vector<jlong> jlongBuf(len);
+        for (jsize i = 0; i < len; ++i) jlongBuf[i] = static_cast<jlong>(flat[i]);
+        env->SetLongArrayRegion(arr, 0, len, jlongBuf.data());
+    }
+    return arr;
+}
+
 }  // extern "C"

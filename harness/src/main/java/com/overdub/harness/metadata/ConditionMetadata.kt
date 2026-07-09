@@ -3,6 +3,7 @@ package com.overdub.harness.metadata
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
+import com.overdub.harness.timestamp.StreamTimestamps
 
 /**
  * JSON sidecar written next to each capture's WAV file, per test2-step2-plan.md Components §2.
@@ -29,6 +30,15 @@ import kotlinx.serialization.json.Json
  * *unknown/not recorded* — honest for legacy captures and manual runs, and distinguishable from a
  * claimed geometry, which is the whole point: the desk-vs-wall contamination that forced the sweep
  * redo was silent precisely because sidecars carried no geometry field at all.
+ *
+ * [timestampSamples] (test2-step2-plan.md item 13 (b)) is the periodic multi-read series the drain
+ * thread took across the session — the instrument item 13 (a) showed single-read sidecars need to
+ * decide whether a timestamp glitch is a one-off (median-of-k fixes it) or a session-level state
+ * (it doesn't). Each stream's reads lie on a frame-vs-time line; an off-line point is a single-read
+ * glitch visible with no cross-run referent. Nullable with the same honesty rule as the single-read
+ * fields: null when getTimestamp is unsupported / the multi-read path didn't run (also legacy
+ * sidecars), a non-empty list when it did. Independent of the single item-10 read fields above,
+ * which are kept for back-compat with the existing analysis scripts.
  */
 @Serializable
 data class ConditionMetadata(
@@ -51,6 +61,7 @@ data class ConditionMetadata(
     @SerialName("stream_offset_frames") val streamOffsetFrames: Double? = null,
     @SerialName("stream_offset_ms") val streamOffsetMs: Double? = null,
     @SerialName("reflector_geometry") val reflectorGeometry: String? = null,
+    @SerialName("timestamp_samples") val timestampSamples: List<StreamTimestamps>? = null,
 )
 
 private val json = Json { ignoreUnknownKeys = true }

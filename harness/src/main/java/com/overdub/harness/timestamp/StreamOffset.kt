@@ -1,12 +1,18 @@
 package com.overdub.harness.timestamp
 
+import kotlinx.serialization.Serializable
+
 /**
  * The two hardware-timestamp reads (one per full-duplex stream), each a `(framePosition, nanoTime)`
  * pair from Oboe's `getTimestamp(CLOCK_MONOTONIC)` -- a common monotonic clock with the output DAC
  * latency / input ADC latency already folded in (it reports when a frame is actually *heard* /
- * actually *captured*, not when it was enqueued). See test2-step2-plan.md item 10 and
+ * actually *captured*, not when it was enqueued). See test2-step2-plan.md item 10 / item 13 (b) and
  * doc/guides/on-device-audio.md ("Measure the true alignment between the two full-duplex streams").
+ *
+ * `@Serializable` so the item-13 (b) multi-read series can be written to the capture sidecar as a
+ * list of these (the single item-10 read is also a one-element case of the same shape).
  */
+@Serializable
 data class StreamTimestamps(
     val outputFrames: Long,
     val outputNanos: Long,

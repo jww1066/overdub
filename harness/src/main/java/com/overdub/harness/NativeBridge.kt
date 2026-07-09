@@ -91,4 +91,14 @@ object NativeBridge {
 
     /** Input-stream timestamp nanoTime on CLOCK_MONOTONIC (valid only when [nativeHasStreamTimestamps]). */
     external fun nativeGetInputTimestampNanos(): Long
+
+    /**
+     * Multi-read timestamp series (test2-step2-plan.md item 13 (b)): a flat array
+     * `[out_frames0, out_nanos0, in_frames0, in_nanos0, out_frames1, ...]` of periodic `getTimestamp`
+     * reads taken across the session by the drain thread. Empty when `getTimestamp` is unsupported or
+     * the session was too short for a read; non-empty is the population the offline analysis fits a
+     * per-stream frame-vs-time line to, detecting a single-read glitch as an off-line point. Independent
+     * of the single latched [nativeHasStreamTimestamps] read, which is kept for back-compat.
+     */
+    external fun nativeGetTimestampSamples(): LongArray
 }

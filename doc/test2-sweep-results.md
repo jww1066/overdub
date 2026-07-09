@@ -691,6 +691,131 @@ Reproduce: `.venv/Scripts/python.exe scripts/decompose_timestamp_outlier.py --sw
 recapture_session_a` (defaults target Session A's baseline cell × 9). Library + tests:
 `analysis/src/overdub_analysis/timestamp_decompose.py`, `analysis/tests/test_timestamp_decompose.py`.
 
+## Multi-read timestamp batch (item 13 (b), 2026-07-08)
+
+The harness now logs a periodic `getTimestamp` series per session (`timestamp_samples` in the
+sidecar: ~11 reads at 1.5 s spacing across the ~16 s capture, taken by the drain thread while
+both streams are RUNNING — see `harness/.../native_engine.cpp` `readStreamTimestampSample` /
+`FullDuplexEngine::drainLoop`). The instrument 13 (a) showed single-read sidecars need: repeated
+reads of one stream lie on a frame-vs-time line at the sample rate, so a single-read glitch is an
+off-line point with **no cross-run referent**. The existing single latched `stop()` read is kept
+for back-compat, so the item-10 / 13 (a) scripts still work unchanged.
+
+**Batch:** 43 baseline-cell captures (`conversational_armslength_faceup_none`, phone untouched,
+wall reflector) on the Pixel 10 — 3 smoke + 40 unattended back-to-back, 0 hard-fails (0 XRuns,
+0 dropped, builtin speaker on every capture). Data in `analysis/baseline_multiread/`
+(gitignored). Analyzed with `analysis/scripts/analyze_timestamp_multiread.py` (lib
+`overdub_analysis/timestamp_multiread.py`, 13 pytest cases); click ground truth from
+`run_click_gated_sweep.py` over the same batch.
+
+**Method.** Each stream's reads are fit to a line whose **slope is anchored at the sample rate**
+(a stream's `framePosition` advances at fs by physics — the slope is not estimated) with a
+**median intercept** (so one outlier cannot tilt the line, the way an OLS fit would smear a
+glitch's error onto clean reads). A read is flagged when its residual exceeds both an absolute
+floor (5 ms) and 3× the scaled MAD of the residual set. The OLS slope is kept as a *drift
+diagnostic*. Per run: flag outliers on each stream, classify (clean / single-read-glitch /
+session-level-state), and compute the per-sample stream offset + its median. The load-bearing
+test: does the **median** stream offset recover the click ground truth on runs whose single
+latched read was the outlier? Outlier runs are defined relative to the **basis residual** (the
+median of `single − click` across runs, −15.13 ms here — the healthy single-read value), not
+relative to zero, so a healthy ~−15 ms run is not mis-counted as an outlier.
+
+**Population result:**
+
+| quantity | value |
+|---|---|
+| runs | 43 (466 reads total) |
+| clean runs | 41 |
+| runs with a timestamp anomaly | 2 (4.7%) |
+| off-line reads | 6 / 466 (1.29%) |
+| basis residual (median single−click) | −15.13 ms |
+| single−click residual std | 13.29 ms (inflated by the 2 outliers) |
+| median−click residual std | 12.03 ms |
+| single-read-outlier runs (\|single−click − basis\| > 15 ms) | 2 |
+| …of which the median resolves (\|median−click − basis\| ≤ 15 ms) | **1 / 2 (50%)** |
+
+The two anomalous runs split into the two classes 13 (b) was built to discriminate, and they are
+**not** the same failure mode:
+
+- **`..._1783565246313` — timestamp-only glitch; median-of-k FIXES it.** The click-anchored
+  alignment **PASSED** (gcc err −1.31 ms): the captured audio was aligned correctly. Two output
+  `framePosition` reads were off-line, but the input clock was clean, so the median of 11
+  per-sample stream offsets recovered the true offset (median−click −15.08 ms, inside the bar)
+  even though the single latched stop-read was the +24.89 ms outlier. This is the "single-read
+  glitch" class Test 3's median-of-5 knife-edge assumed — now measured, and median-of-k handles
+  it (here 2 bad reads of 11, still under half, so the median is unmoved).
+- **`..._1783565663362` — session-level desync; median-of-k CANNOT fix it, and the audio is
+  wrong too.** The click-anchored alignment **FAILED** (gcc err **78.67 ms**): the captured audio
+  itself is misaligned by ~65–79 ms. The input stream's `getTimestamp` clock read ~+35 ms ahead
+  of the output's for the *whole* session (clean runs read −8…−0.4 ms), and the input–output
+  frame gap converged from −6720 to ~0 frames across the first ~6 reads — the streams
+  re-synchronised to a *different* relative offset mid-session and settled there. Every per-sample
+  stream offset is shifted, so the median is shifted too (median−click **+64.69 ms**, outside the
+  bar). **0 XRuns, 0 dropped frames, builtin-speaker route** — this capture was *silent to every
+  standard contamination gate*; only the independent click anchor caught it.
+
+**What this settles and what it leaves open.**
+
+1. **The glitch-vs-session-state question is now answered by measurement, not assumption.** Of 2
+   anomalous runs, 1 was an isolated timestamp glitch (median-fixable) and 1 was a session-level
+   desync (median-unfixable). Test 3's median-of-5 remedy is therefore **validated for the
+   isolated-glitch class** but **not sufficient as a blanket fix** — a session-level desync
+   produces a bad median, and at a measured 1/43 ≈ 2.3% of captures on the best-case device.
+   Median-of-k must be paired with a per-capture rejection/consistency gate; it cannot stand
+   alone.
+2. **The session-level desync class is a CAPTURE failure, not a reporting artifact.** 5663362's
+   audio is misaligned 78.67 ms — the input stream's timing genuinely drifted, which moved the
+   recorded samples, not merely the timestamp reports. So this is not "the timestamp lied about
+   an otherwise-good capture"; it is "the capture itself went wrong, silently." The XRun /
+   dropped-frame / route gates did not see it. Only an **independent ground truth** did — the
+   click here, and the loopback rig on the headphone route the click cannot reach. This is a
+   concrete instance of exactly the failure class Test 1a's rig honesty check exists to catch,
+   and it is silent to every gate short of an independent anchor.
+3. **Implication for the headphone route (no click, no bleed).** On speaker route the click gate
+   rejects a 5663362-class capture before it enters a chain, so median-of-k + click-gate together
+   cover both classes. On the **headphone** route there is no acoustic click and (at runtime) no
+   rig, so a session-level desync there would be silent to *both* median-of-k *and* the alignment
+   gate — exactly the case the loopback rig's per-route honesty validation must de-risk before
+   the product trusts `getTimestamp` blind. 13 (b) produced the failure instance; the rig remains
+   the instrument that decides whether it occurs on the headphone route.
+4. **Outlier-rate estimate is thin.** 2 anomalies / 43 runs; 1 session-level / 43. Enough to
+   confirm the class is real and to refute "median-of-5 alone suffices," not enough to pin the
+   rate — the 95% CI on a 1/43 session-level rate is wide. A larger batch would narrow it, but
+   the *qualitative* finding (two distinct classes, only one median-fixable) does not depend on
+   the rate.
+
+**Budget consequence.** Over the 39 runs that are clean *and* on the basis, the median−click
+residual clusters tightly (−15.36 to −14.91 ms, ~0.4 ms spread) — i.e. median-of-k drives the
+per-measurement timestamp noise to well under 1 ms on those runs, consuming essentially none of
+the ±2 ms per-hop allowance. The overall median−click std of 12.03 ms is dominated by the
+5663362 session-level desync (+64.69 ms); the 5.5 ms residual-std scare from the item-10 study is
+now decomposed — it was harness start-jitter + the single-read outlier, both removable by the
+multi-read median on clean runs. The budget arithmetic in `prototype-plan.md` thresholds point 4
+stands, with the caveat that it assumes a per-capture gate removes the session-level-desync class
+before the median is trusted.
+
+**Methodological caveat — a uniform whole-session offset is invisible to the line-fit flagger.**
+Two clean runs (`..._5424116`, `..._5683041`) have *both* single- and median−click at ~−12 ms,
+3 ms off the −15.13 basis, with zero off-line reads. A session-level desync that shifts *every*
+read of a stream by the same amount leaves each stream's frame-vs-time line internally consistent
+(slope still fs, residuals still ~0) — so the off-line-point flagger cannot see it; only the
+independent anchor (the click, here; the rig on the headphone route) reveals that the offset is
+wrong. 5663362 was flagged only because its desync was *uneven* (the input–output gap converged
+mid-session, producing off-line points); a uniform desync of the same species would have passed
+the line-fit clean and been caught only by the click. This is the second reason median-of-k +
+line-fit consistency cannot stand alone: they detect scattered glitches and uneven drift, but a
+uniform session-level offset looks identical to a correctly-offset session without an independent
+anchor. It sharpens, rather than softens, the case that the click gate (speaker route) and the
+loopback rig's honesty validation (headphone route) are load-bearing.
+
+Reproduce: `.venv/Scripts/python.exe scripts/analyze_timestamp_multiread.py --sweep-dir
+baseline_multiread --click-csv baseline_multiread/click_gated_results.csv`. Library + tests:
+`analysis/src/overdub_analysis/timestamp_multiread.py`, `analysis/tests/test_timestamp_multiread.py`.
+Harness change: `harness/.../native_engine.{h,cpp}` (`readStreamTimestampSample`, drain-loop
+periodic sampling, `timestampSamplesFlat`), `native_bridge.cpp` (`nativeGetTimestampSamples`),
+`NativeBridge.kt`, `CaptureEngine.kt`, `ConditionMetadata.kt` (`timestamp_samples`),
+`StreamOffset.kt` (`@Serializable`), `ConditionMetadataTest.kt`.
+
 ## Vocal-interference injection study (item 12, 2026-07-08)
 
 The Session A sweep measured bleed alignment against a quiet room; production correlates through a

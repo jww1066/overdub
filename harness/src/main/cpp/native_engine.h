@@ -93,6 +93,16 @@ public:
     int64_t inputTimestampFrames() const { return mInputTsFrames; }
     int64_t inputTimestampNanos() const { return mInputTsNanos; }
 
+    // Multi-read timestamp series (test2-step2-plan.md item 13 (b)): the drain thread reads
+    // getTimestamp() on both streams periodically while RUNNING, so a single-read glitch shows up
+    // as an off-line point on a stream's frame-vs-time line without needing any cross-run referent
+    // (the instrument item 13 (a)'s single-read decomposition showed was needed). Returned as a
+    // flat array [out_frames0, out_nanos0, in_frames0, in_nanos0, out_frames1, ...] for trivial JNI
+    // marshalling; empty when getTimestamp is unsupported or the session was too short for a read.
+    // Independent of the single latched stop() read above, which is kept for back-compat with the
+    // item-10 analysis scripts.
+    std::vector<int64_t> timestampSamplesFlat();
+
     // oboe::AudioStreamDataCallback
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream *oboeStream, void *audioData,
                                           int32_t numFrames) override;
@@ -108,6 +118,12 @@ private:
     // reads succeed, so a repeat stop() -- when the streams are no longer RUNNING and getTimestamp
     // would fail -- can't clobber a good earlier read.
     void readStreamTimestamps();
+
+    // One periodic multi-read sample (item 13 (b)): reads both streams and, on success, appends a
+    // TimestampSample under mTsMutex. Returns true if both reads succeeded. Called from the drain
+    // thread, which is a normal thread (not the audio callback), so getTimestamp is safe here.
+    bool readStreamTimestampSample();
+
 
     static constexpr size_t kRingCapacity = 1u << 16;  // 65536 int16 (~1.3s mono at 48k)
     static constexpr size_t kRingMask = kRingCapacity - 1;
@@ -154,6 +170,20 @@ private:
     int64_t mInputTsFrames = -1;
     int64_t mInputTsNanos = -1;
     std::atomic<bool> mHasTimestamps{false};
+
+    // Multi-read series (item 13 (b)): one entry per successful periodic read of both streams.
+    // Guarded by mTsMutex (written from the drain thread, read from the Kotlin thread after stop()).
+    struct TimestampSample {
+        int64_t outFrames;
+        int64_t outNanos;
+        int64_t inFrames;
+        int64_t inNanos;
+    };
+    std::mutex mTsMutex;
+    std::vector<TimestampSample> mTimestampSamples;
+
+    // Spacing between multi-read samples (item 13 (b) targets ~10 reads across a ~16s capture).
+    static constexpr int kTimestampPeriodMs = 1500;
 };
 
 }  // namespace overdub

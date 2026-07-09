@@ -1,5 +1,6 @@
 package com.overdub.harness.metadata
 
+import com.overdub.harness.timestamp.StreamTimestamps
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -90,5 +91,33 @@ class ConditionMetadataTest {
         assertEquals(true, json.contains("\"output_timestamp_frames\""))
         assertEquals(true, json.contains("\"input_timestamp_nanos\""))
         assertEquals(true, json.contains("\"reflector_geometry\""))
+    }
+
+    @Test
+    fun `round-trips a multi-read timestamp_samples series`() {
+        // item 13 (b): the periodic getTimestamp series must survive a JSON round-trip element-for-
+        // element, including ordering (the offline line-fit depends on the series being in capture
+        // order, and kotlinx.serialization preserves list order).
+        val series = listOf(
+            StreamTimestamps(100_000L, 1_000_000_000L, 99_000L, 1_000_000_500L),
+            StreamTimestamps(172_000L, 2_500_000_000L, 171_000L, 2_500_000_400L),
+            StreamTimestamps(244_000L, 4_000_000_000L, 243_000L, 4_000_000_300L),
+        )
+        val original = sample().copy(timestampSamples = series)
+        val decoded = conditionMetadataFromJson(original.toJson())
+        assertEquals(original, decoded)
+        assertEquals(3, decoded.timestampSamples?.size)
+        assertEquals(172_000L, decoded.timestampSamples?.get(1)?.outputFrames)
+    }
+
+    @Test
+    fun `timestamp_samples defaults to null and is omitted when absent`() {
+        // Legacy sidecars (pre-item-13 (b)) decode with timestampSamples == null, and a sidecar that
+        // never had the field round-trips to a JSON string without it (so old analysis tools that
+        // don't know the field aren't perturbed).
+        val legacy = sample().copy(timestampSamples = null)
+        val json = legacy.toJson()
+        assertEquals(false, json.contains("\"timestamp_samples\""))
+        assertEquals(null, conditionMetadataFromJson(json).timestampSamples)
     }
 }

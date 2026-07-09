@@ -730,13 +730,33 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
       on "no evidence the glitch is session-level" + 13 (b)'s upcoming measurement, not on a
       proven single-read glitch. Full write-up: `test2-sweep-results.md` "Session A
       timestamp-outlier decomposition."
-    - **(b) Multi-read timestamp logging + unattended batch (device; no rig, no repositioning).**
-      `FullDuplexEngine` change: read `getTimestamp` ~10× spread across the session, log all
-      reads in the sidecar (nullable list, same honesty rule as the existing single-read
-      fields); then ~30–50 baseline captures via `repeat_sweep_cell.sh`. Outputs: outlier rate
-      at sample size, glitch-vs-session-state discrimination (decides whether median-of-k is a
-      valid remedy — Test 3's knife-edge), large-N read-noise std, and the stream−click residual
-      population (rig-free speaker-route honesty).
+    - ~~**(b) Multi-read timestamp logging + unattended batch (device; no rig, no
+      repositioning).**~~ — **done (2026-07-08).** `FullDuplexEngine` now reads `getTimestamp`
+      ~10× across the session from the drain thread (1.5 s spacing → 11 reads / ~16 s capture),
+      logged as a nullable `timestamp_samples` list in the sidecar (same honesty rule as the
+      single-read fields; single latched `stop()` read kept for back-compat). 43 baseline-cell
+      captures on the Pixel 10 (3 smoke + 40 unattended, 0 hard-fails), analyzed by
+      `overdub_analysis/timestamp_multiread.py` / `scripts/analyze_timestamp_multiread.py`
+      (13 pytest cases) with click ground truth from `run_click_gated_sweep.py`. **Result — the
+      glitch-vs-session-state question is settled by measurement, and median-of-k is NOT a
+      blanket fix:** 41/43 runs clean; 2 anomalous runs split into two classes. (1)
+      `..._5246313`: a timestamp-only glitch (2 off-line output reads, click-anchored alignment
+      PASSED at −1.31 ms) — the median of 11 reads recovers the true offset (median−click
+      −15.08 ms) despite the single read being the +24.89 ms outlier. Median-of-k works for this
+      isolated-glitch class. (2) `..._5663362`: a session-level desync — the input clock read
+      ~+35 ms ahead of the output's for the whole session, the input–output frame gap converged
+      mid-session, the **audio itself** misaligned 78.67 ms (click FAIL), and the median is wrong
+      too (+64.69 ms). 0 XRuns / 0 dropped / correct route — silent to every standard gate; only
+      the independent click caught it. Median-of-k cannot fix this class. **So Test 3's
+      median-of-5 remedy is validated for isolated glitches but must be paired with a per-capture
+      rejection/consistency gate; it cannot stand alone.** A second methodological finding: a
+      *uniform* whole-session offset shift (2 clean runs sat 3 ms off the basis with zero
+      off-line reads) is invisible to the line-fit flagger — only an independent anchor sees it —
+      so line-fit consistency is not a substitute for the click/rig either. Outlier rate is thin
+      (2/43; 1 session-level/43) but the qualitative two-class split does not depend on the rate.
+      The headphone route (no click, no runtime rig) would leave the session-level class silent —
+      the concrete instance of what Test 1a's rig honesty check must de-risk. Full write-up:
+      `test2-sweep-results.md` "Multi-read timestamp batch."
     - **(c) Optional headset-route batch** if a wired USB-C headset is on hand — timestamp
       variance/outlier stats on the Test 1a route (honesty still needs the rig; the click won't
       anchor without bleed).

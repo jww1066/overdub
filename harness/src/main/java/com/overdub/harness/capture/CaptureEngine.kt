@@ -57,6 +57,8 @@ data class CaptureResult(
     /** Derived output<->input stream start misalignment (test2-step2-plan.md item 10); null if */
     /** getTimestamp was unavailable on this device. */
     val streamOffsetMs: Double?,
+    /** Periodic multi-read series (item 13 (b)); null when getTimestamp was unsupported. */
+    val timestampSamples: List<StreamTimestamps>? = null,
 )
 
 /** Thrown when a capture cannot even start (stream open/start failed); a run that starts but is */
@@ -210,6 +212,33 @@ class CaptureEngine(private val context: Context) {
                 )
             }
 
+            // Multi-read timestamp series (item 13 (b)): the drain thread sampled getTimestamp
+            // periodically across the session. Non-null only when at least one read succeeded
+            // (same honesty rule as the single-read fields); empty-when-attempted folds into null.
+            val tsFlat = NativeBridge.nativeGetTimestampSamples()
+            val timestampSamples: List<StreamTimestamps>? = if (tsFlat.isNotEmpty()) {
+                tsFlat.asList().chunked(4) { c ->
+                    StreamTimestamps(
+                        outputFrames = c[0],
+                        outputNanos = c[1],
+                        inputFrames = c[2],
+                        inputNanos = c[3],
+                    )
+                }
+            } else {
+                if (streamTimestamps != null) {
+                    Log.w(
+                        TAG,
+                        "single getTimestamp read succeeded but multi-read series is empty -- " +
+                            "drain thread sampled no reads (unexpected, investigate)",
+                    )
+                }
+                null
+            }
+            if (timestampSamples != null) {
+                Log.i(TAG, "timestamp samples: ${timestampSamples.size} reads across the session")
+            }
+
             val (routeLabel, isSpeaker) = resolveOutputRoute(outputDeviceId)
             if (!isSpeaker) {
                 Log.w(TAG, "output route is '$routeLabel', not the built-in speaker -- capture may be invalid")
@@ -253,6 +282,7 @@ class CaptureEngine(private val context: Context) {
                 streamOffsetFrames = streamOffset?.frames,
                 streamOffsetMs = streamOffset?.ms,
                 reflectorGeometry = reflectorGeometry,
+                timestampSamples = timestampSamples,
             )
             jsonFile.writeText(metadata.toJson())
 
@@ -269,6 +299,7 @@ class CaptureEngine(private val context: Context) {
                 outputRoute = routeLabel,
                 routeIsBuiltinSpeaker = isSpeaker,
                 streamOffsetMs = streamOffset?.ms,
+                timestampSamples = timestampSamples,
             )
         } finally {
             NativeBridge.nativeClose()

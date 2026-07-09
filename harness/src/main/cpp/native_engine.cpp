@@ -129,6 +129,11 @@ int FullDuplexEngine::start() {
 
     mInputStarted.store(false, std::memory_order_relaxed);
     mDrainRunning.store(true, std::memory_order_relaxed);
+    {
+        // Reset the multi-read series for this run (item 13 (b)).
+        std::lock_guard<std::mutex> lock(mTsMutex);
+        mTimestampSamples.clear();
+    }
     mDrainThread = std::thread(&FullDuplexEngine::drainLoop, this);
 
     // Start the OUTPUT first so its data callback (the input drainer) is already running before the
@@ -231,6 +236,42 @@ void FullDuplexEngine::readStreamTimestamps() {
          static_cast<long long>(mInputTsFrames), static_cast<long long>(mInputTsNanos));
 }
 
+bool FullDuplexEngine::readStreamTimestampSample() {
+    if (!mOutputStream || !mInputStream) return false;
+    auto outTs = mOutputStream->getTimestamp(CLOCK_MONOTONIC);
+    auto inTs = mInputStream->getTimestamp(CLOCK_MONOTONIC);
+    if (!outTs || !inTs) {
+        // A transient failure (e.g. the streams are stopping) is expected near session end; the
+        // drain loop just skips it and tries again next period. Only a sustained failure (every
+        // read fails -> empty series) signals getTimestamp is unsupported, which the Kotlin side
+        // records as a null timestamp_samples list (same honesty rule as the single-read fields).
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(mTsMutex);
+        mTimestampSamples.push_back({
+            outTs.value().position,
+            outTs.value().timestamp,
+            inTs.value().position,
+            inTs.value().timestamp,
+        });
+    }
+    return true;
+}
+
+std::vector<int64_t> FullDuplexEngine::timestampSamplesFlat() {
+    std::lock_guard<std::mutex> lock(mTsMutex);
+    std::vector<int64_t> flat;
+    flat.reserve(mTimestampSamples.size() * 4);
+    for (const auto &s : mTimestampSamples) {
+        flat.push_back(s.outFrames);
+        flat.push_back(s.outNanos);
+        flat.push_back(s.inFrames);
+        flat.push_back(s.inNanos);
+    }
+    return flat;
+}
+
 size_t FullDuplexEngine::capturedSampleCount() {
     std::lock_guard<std::mutex> lock(mAccumMutex);
     return mAccumulator.size();
@@ -328,9 +369,24 @@ void FullDuplexEngine::drainLoop() {
         return n;
     };
 
+    // Multi-read timestamp sampling (item 13 (b)): the drain thread is a normal thread, not the
+    // audio callback, so getTimestamp is safe here. Spread reads across the session at a fixed
+    // cadence so each stream's frame-vs-time line is populated; the offline analysis detects a
+    // single-read glitch as an off-line point on that line. Waiting until the streams have actually
+    // started (mInputStarted) avoids a guaranteed-failing read during the startup window.
+    using clock = std::chrono::steady_clock;
+    auto nextTsRead = clock::now() + std::chrono::milliseconds(kTimestampPeriodMs);
+
     while (mDrainRunning.load(std::memory_order_relaxed)) {
         if (drainOnce() == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        if (mInputStarted.load(std::memory_order_acquire)) {
+            auto now = clock::now();
+            if (now >= nextTsRead) {
+                readStreamTimestampSample();
+                nextTsRead = now + std::chrono::milliseconds(kTimestampPeriodMs);
+            }
         }
     }
     // Final drain: empty whatever the callback pushed between the last loop iteration and stop().

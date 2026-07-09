@@ -57,6 +57,10 @@ analysis/timestamp_study/
 analysis/click_check/
 analysis/recapture_session_a/
 analysis/vocal_take/
+# Item 13 (b) multi-read timestamp batch (43 baseline captures pulled from device).
+analysis/baseline_batch_40/
+analysis/baseline_multiread/
+analysis/.batch_logs/
 
 # OS / editor cruft
 .DS_Store
