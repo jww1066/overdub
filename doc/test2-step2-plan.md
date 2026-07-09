@@ -710,3 +710,21 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     SNR, set entirely by click burial — the anchored correlator posts 0.00 ms error at every SNR
     where the click anchors. Same anchor-first failure structure as the vocal study. Remaining
     from item 12: only re-running against Session B once captured (confirmatory).**
+13. **Interim timestamp-variance study (added 2026-07-08; Test 1a pulled further forward — the
+    loopback rig is delayed).** Full rationale: `prototype-plan.md` Test 1a "Interim
+    timestamp-variance plan." Three parts, in order:
+    - **(a) Offline outlier decomposition (pure Python, existing data).** The Session A sidecars
+      in `analysis/recapture_session_a/` carry the four raw `(framePosition, nanoTime)` values;
+      decompose each run's `stream_offset_ms` into its frame-position and clock-delta components
+      across the 9 runs and attribute repeat 7's ~40 ms anomaly to a specific component/stream.
+      Reusable script under `analysis/scripts/`.
+    - **(b) Multi-read timestamp logging + unattended batch (device; no rig, no repositioning).**
+      `FullDuplexEngine` change: read `getTimestamp` ~10× spread across the session, log all
+      reads in the sidecar (nullable list, same honesty rule as the existing single-read
+      fields); then ~30–50 baseline captures via `repeat_sweep_cell.sh`. Outputs: outlier rate
+      at sample size, glitch-vs-session-state discrimination (decides whether median-of-k is a
+      valid remedy — Test 3's knife-edge), large-N read-noise std, and the stream−click residual
+      population (rig-free speaker-route honesty).
+    - **(c) Optional headset-route batch** if a wired USB-C headset is on hand — timestamp
+      variance/outlier stats on the Test 1a route (honesty still needs the rig; the click won't
+      anchor without bleed).

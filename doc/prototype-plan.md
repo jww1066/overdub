@@ -111,7 +111,9 @@ jack. This is a fully electrical loopback path (phone USB-C → UCMA-2 → PassM
 physical clap/acoustic signal is needed for this test — the test signal is generated and read back
 over the wired connection, primarily by the harness's own capture path with OboeTester as a
 cross-check (see Method below). Test 2's acoustic bleed test is unaffected by this and still
-uses the phone's built-in speaker/mic directly.
+uses the phone's built-in speaker/mic directly. **Update (2026-07-08): rig delivery is
+delayed.** Interim de-risking that needs no rig — most of the timestamp-variance question —
+is scheduled under Test 1a's "Interim timestamp-variance plan" below.
 
 **Method (revised 2026-07-08 — stale "physical clap" wording removed; the rig is fully electrical,
 per the hardware-status note above):** drive a known click/test signal through the electrical
@@ -166,7 +168,10 @@ ground-truth offset already being measured for Test 1, across whatever output ro
 the loopback-measured ground truth and AAudio's self-reported latency. Compare across routes: does
 the discrepancy (if any) stay consistent, or does it change meaningfully between speaker and
 headphone output? Repeat on a second device if available, since the design doc's one documented
-counter-example (moto g(20)) was device-specific, not universal.
+counter-example (moto g(20)) was device-specific, not universal. (Protocol addition 2026-07-08:
+take ~10 timestamp reads per repetition, not one — Session A observed a 1-in-9 single-read
+~40 ms outlier, so single reads are untrustworthy and the rep batch doubles as the outlier-rate
+measurement Test 3's median-of-k knife-edge needs.)
 
 **What this answers:** Whether trusting platform-reported latency is viable as the primary
 mechanism (making Test 2's bleed correlation unnecessary for headphone sessions), or only viable as
@@ -192,6 +197,30 @@ device. What the rig still owes this test is the *honesty* check: that the repor
 physical truth (the moto g(20) failure class) on the route the rig measures. Note the 5.5ms
 residual std brushes this test's ≤5ms allowance as a raw number; how much of it is quantization
 vs. real error is decomposed by the in-basis calibration click (Test 2's ground-truth correction).
+
+**Interim timestamp-variance plan (2026-07-08, rig delayed).** The rig is irreplaceable only for
+headphone-route *honesty* and Test 1's seam check; the timestamp *variance* questions are
+testable now, and the Session A outlier made them urgent — Test 3's median-of-5 remedy rests on
+an untested assumption (that an outlier is a single-read glitch, not a session-level state) and
+on a one-observation outlier rate. Three steps, none needing the rig:
+
+1. **Decompose the existing outlier — zero device time.** The Session A sidecars carry all four
+   raw `(framePosition, nanoTime)` values, so the repeat-7 anomaly can be attributed to a
+   specific component (input vs. output frame position vs. clock delta) across the 9 runs. The
+   attribution may enable a cheaper, stronger remedy than medians (e.g. sanity-checking
+   `framePosition` against elapsed capture length).
+2. **Multi-read logging + unattended batch — device, no rig, no repositioning.** Harness change:
+   read `getTimestamp` ~10× spread across each session (not once at `stop()`), log all reads in
+   the sidecar; then ~30–50 baseline captures via `repeat_sweep_cell.sh`. Yields (i) the outlier
+   rate at real sample size (at a true 1/9, ~30 sessions show 3–4 outliers; 0–1 says the rate is
+   much lower), (ii) the glitch-vs-session-state discrimination that decides whether median-of-k
+   is a valid remedy at all, (iii) a large-N read-noise std replacing the 8-point 0.25 ms
+   estimate, and (iv) a bigger stream−click residual population — the click being a rig-free
+   honesty check on the speaker route.
+3. **Headset-route variance — only if a wired USB-C headset is on hand.** Variance/outlier
+   statistics on the exact route this test targets need only the route active; the click won't
+   anchor (no bleed), but pure timestamp statistics don't need it. Honesty still waits for the
+   rig.
 
 **Rig scoping — why the loopback is still worth running (added 2026-07-08).** After the
 ground-truth correction (Test 2), the rig no longer serves as any test's ±2ms referent, which
@@ -500,17 +529,38 @@ cross-device bias distribution — swept as a requirement rather than assumed. T
    ~100 ms bias fails outright, so heterogeneous chains need the per-device calibration/self-check
    the design already contemplates. This ±8 ms is the number the cross-device follow-up
    (Test 1a on a second device) gets judged against.
-3. **The headphone/timestamp mechanism needs median-of-5 reads, not median-of-3.** At the
+3. **The headphone/timestamp mechanism needs median-of-5 reads at minimum — and that pass is a
+   knife-edge, not a comfortable one.** These are binomials, not simulation results: at the
    Session-A-observed 1-in-9 outlier rate (±39.6 ms displacement), a single read fails the gate
-   (p95 ≈ 41 ms) and so does median-of-3 (≈ 39 ms — a ~3.4% per-track outlier-survival rate
-   still lands an outlier inside >5% of N=4 chains); **median-of-5 passes (1.3 ms)**. The 1/9
-   rate rests on one observation, so the script sweeps it: at 1/20, median-of-3 suffices.
+   (P(≥1 bad track of 4) = 1−(8/9)⁴ ≈ 38%; p95 ≈ 41 ms) and so does median-of-3 (per-track
+   outlier survival 3p²(1−p)+p³ ≈ 3.4% → ~13% of N=4 chains affected); median-of-5 brings the
+   chain rate to **~4.5% — under the gate's 5% by half a percentage point**, on a rate estimated
+   from ONE observation (the sim's 1.3 ms cell hides this cliff). So the honest product guidance
+   is median-of-5 *plus* an actual outlier-rate measurement (folded into the interim
+   timestamp-variance plan under Test 1a), or residual-based outlier rejection instead of a
+   fixed read count. At a true rate of 1/20, median-of-3 suffices.
 
 **Verdict: conditional PASS.** The 15 ms gate holds at N=4 under the measured noise for either
 mechanism, *conditional on* (a) cross-device bias differences staying within ~±8 ms — now a
 stated requirement on unmeasured hardware, not an assumption — and (b) the timestamp mechanism
-taking ≥5 reads per session with a median (or equivalent outlier rejection). Re-run the script
-when a second device's bias data or a better outlier-rate estimate exists.
+taking ≥5 reads per session with a median (or equivalent outlier rejection). Once a second
+device's bias is measured, the bias gate is a **subtraction** (|b_i − b_j| against the budget),
+not a re-simulation.
+
+**Assessment reconciliation (2026-07-08, `test3-monte-carlo-assessment.md`).** All three headline
+numbers are closed-form, and the simulation reproduces them exactly: the noise result is the
+range order statistic (95th percentile of the range of 4 iid normals ≈ 3.63σ = 1.13 ms at
+σ = 0.31), the critical bias half-range is the uniform-range statistic inverted
+(15 ms / 1.80 ≈ 8.3 ms, matching the scan's 8.25–8.50 bracket), and the timestamp results are
+the binomials in point 3. `tests/test_multihop.py` asserts the simulation against those same
+closed forms, so the two agree by construction. **The Test 3 verdict therefore rests on the
+arithmetic; the Monte Carlo is demoted to a cross-check, held in reserve for the one case that
+would turn genuinely non-analytic (mixed mechanisms per hop — bleed on some devices, timestamps
+on others — with correlated failure modes).** One modeling caveat recorded: the flat interference
+schedule extrapolates the single-vocal injection result to the k−1 *stacked* stems hop k would
+actually hear — the same interference class (tempo-correlated, waveform-uncorrelated), but an
+inference, not a measurement; if it ever needs closing, a stacked-stem variant of
+`run_vocal_injection.py` measures the actual quantity for less effort than any modeling.
 
 ## Explicitly out of scope for this prototype
 

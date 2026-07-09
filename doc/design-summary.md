@@ -148,7 +148,11 @@ unreliable across devices. See `prototype-plan.md`'s Test 1a. **Caveat (2026-07-
 re-capture):** even on the Pixel 10, 1 of 9 sessions returned a ~40 ms `getTimestamp` outlier
 (the other 8 clustered within ±0.25 ms) — so option 2, if adopted, must read the timestamps
 repeatedly and take a median rather than trusting a single read, and the loopback honesty check
-(Test 1a) remains load-bearing regardless.
+(Test 1a) remains load-bearing regardless. Test 3's arithmetic sharpened this (2026-07-08):
+median-of-5 is the minimum that clears the multi-hop gate at the observed rate, and only by half
+a percentage point — and whether medians help at all depends on the outlier being a single-read
+glitch rather than a session-level state, which is untested. Both questions are scheduled in the
+interim timestamp-variance plan (`prototype-plan.md` Test 1a) while the rig is delayed.
 
 ## Chain-of-forwarding alignment error
 
