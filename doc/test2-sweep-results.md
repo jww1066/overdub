@@ -624,6 +624,73 @@ Final Session A population: 11/11 PASS, correlator error mean −1.12 ms, std 0.
 max |err| 1.35 ms. **Per the staged protocol, Session B (the remaining ~9 arrangements → full
 36-cell map) is now confirmatory, not required for the verdict — run when convenient.**
 
+### Session A timestamp-outlier decomposition (item 13 (a), 2026-07-08)
+
+The +24.5 ms `getTimestamp` outlier on baseline repeat 7 (`..._410074`) is the one finding
+Test 3's median-of-5 knife-edge rests on, so it earned a dedicated decomposition before any
+remedy is trusted. Each sidecar carries the four raw `(framePosition, nanoTime)` values behind
+its derived `stream_offset_ms`; `overdub_analysis/timestamp_decompose.py` (CLI
+`analysis/scripts/decompose_timestamp_outlier.py`, 7 pytest cases) recomputes the offset from
+those raw values (regression-checked against the sidecar's -78.446 ms to 1e-6), splits it into
+`frame_delta` + `clock_delta` components, and adds per-stream consistency checks against two
+referents no single stream can fake: the captured WAV's frame count (`input/output_minus_wav`)
+and the sidecar wall stamp (`output/input_anchor`, cross-run comparable within a boot). A glitch
+in one raw value flags a characteristic component subset; the run is attributed when one subset
+deviates from the 8-run cluster and no other referent moves.
+
+**Result: no reliable single-component attribution.** Repeat 7 deviates from the cluster median
+by ~+40 ms on the discriminant (`stream − click`, the click being independent ground truth), but
+*every candidate referent's own benign cluster spread is comparable to the anomaly* — so none
+discriminates:
+
+| component | run 7 | cluster med | cluster spread | deviation | flag? |
+|---|---|---|---|---|---|
+| `frame_delta_ms` | −49.00 | −89.00 | **24.46** | +40.00 | no (spread rivals anomaly) |
+| `clock_delta_ms` | −10.53 | −14.12 | **31.85** | +3.60 | no |
+| `input_minus_wav_ms` | −27.00 | −12.50 | 15.57 | −14.50 | no |
+| `output_minus_wav_ms` | 22.00 | 58.00 | 17.79 | −36.00 | no (spread rivals anomaly) |
+| `wav_ms` | 16388 | 16356 | 10.38 | +32.00 | no |
+| `output_anchor_ms` | −1.783e12 | −1.783e12 | **43.37** | −117.68 | no |
+| `input_anchor_ms` | −1.783e12 | −1.783e12 | **30.06** | −122.06 | no |
+
+`frame_delta` is the most tempting culprit — its +40 ms deviation matches the offset error
+exactly, pointing at an input `framePosition` glitch — but its own cluster spreads ±24 ms
+benignly (the start-jitter the item-10 study already measured), so a 40 ms step on it is
+statistically indistinguishable from noise. The wall anchors are even worse discriminators
+(~±40 ms cluster spread, the wall-stamp code point jittering). The WAV-length check, which *can*
+reach ~0 benign spread, deviates by only +32 ms — present but not alone, and consistent with the
+outlier run being a slightly longer capture rather than a framePosition lie. No single raw value
+is the smoking gun.
+
+**What this rules in and out.** It does **not** confirm the outlier is a single-read glitch (the
+hypothesis median-of-5 needs) — but it does **not** support any of the alternatives either:
+nothing points at a session-level state (the wall anchors and capture length are clean-ish), so
+there is no evidence the glitch *persists* across a session, which is the assumption
+median-of-5 forbids. The honest position is that **single-read sidecars under-determine the
+attribution**: one timestamp per stream is not enough information to say which value (if any)
+glitched, because the only cross-run referents available here jitter by as much as the anomaly
+itself. The remedy that *would* discriminate — and that this finding therefore makes load-bearing
+— is item 13 (b)'s multi-read logging: repeated `getTimestamp` calls on one stream lie on a
+frame-vs-time line, so a single-read glitch is visible as an off-line point with **no cross-run
+referent needed**, sidestepping exactly the under-determination this decomposition hit. So:
+
+- **Median-of-5 stays the leading remedy candidate**, but its justification is now "no evidence
+  the glitch is session-level" (weak) plus the multi-read study's upcoming direct measurement
+  (strong) — not "decomposition proved a single-read glitch."
+- **No cheaper single-read remedy surfaced** — a framePosition-vs-elapsed-length sanity check,
+  the candidate this decomposition was hunting for, is *not* validated: `input_minus_wav`'s
+  cluster spread (15.6 ms) is too large to gate a 40 ms outlier cleanly, and the WAV-length
+  deviation alone is ambiguous. A framePosition sanity check may still help as a *secondary*
+  rejector once 13 (b) measures the real per-run frame-vs-time residuals, but it is not
+  free-standing today.
+- **13 (b) is now the bottleneck for both open questions** it was scoped to answer: the true
+  outlier rate (Test 3's knife-edge input) *and* the glitch-vs-session-state discrimination
+  (median-of-k's validity). The decomposition confirms 13 (b) cannot be skipped for the latter.
+
+Reproduce: `.venv/Scripts/python.exe scripts/decompose_timestamp_outlier.py --sweep-dir
+recapture_session_a` (defaults target Session A's baseline cell × 9). Library + tests:
+`analysis/src/overdub_analysis/timestamp_decompose.py`, `analysis/tests/test_timestamp_decompose.py`.
+
 ## Vocal-interference injection study (item 12, 2026-07-08)
 
 The Session A sweep measured bleed alignment against a quiet room; production correlates through a

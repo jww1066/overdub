@@ -153,6 +153,15 @@ median-of-5 is the minimum that clears the multi-hop gate at the observed rate, 
 a percentage point — and whether medians help at all depends on the outlier being a single-read
 glitch rather than a session-level state, which is untested. Both questions are scheduled in the
 interim timestamp-variance plan (`prototype-plan.md` Test 1a) while the rig is delayed.
+**Decomposition update (2026-07-08, `test2-sweep-results.md` "Session A timestamp-outlier
+decomposition"):** the offline outlier decomposition (plan step 1) did *not* confirm a
+single-read glitch — but it found no evidence of a session-level state either (the wall anchors
+and capture length are clean-ish), and it showed single-read sidecars *under-determine* the
+attribution because the only cross-run referents available jitter by as much as the anomaly.
+That makes plan step 2's multi-read logging load-bearing for the glitch-vs-session-state
+question (its frame-vs-time-line discriminator needs no cross-run referent); median-of-5 stays
+the leading candidate on "no evidence the glitch persists" + step 2's upcoming measurement,
+not on a proven single-read glitch.
 
 ## Chain-of-forwarding alignment error
 

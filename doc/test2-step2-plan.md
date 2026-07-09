@@ -713,11 +713,23 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
 13. **Interim timestamp-variance study (added 2026-07-08; Test 1a pulled further forward — the
     loopback rig is delayed).** Full rationale: `prototype-plan.md` Test 1a "Interim
     timestamp-variance plan." Three parts, in order:
-    - **(a) Offline outlier decomposition (pure Python, existing data).** The Session A sidecars
-      in `analysis/recapture_session_a/` carry the four raw `(framePosition, nanoTime)` values;
-      decompose each run's `stream_offset_ms` into its frame-position and clock-delta components
-      across the 9 runs and attribute repeat 7's ~40 ms anomaly to a specific component/stream.
-      Reusable script under `analysis/scripts/`.
+    - ~~**(a) Offline outlier decomposition (pure Python, existing data).**~~ — **done
+      (2026-07-08).** `overdub_analysis/timestamp_decompose.py` (CLI
+      `analysis/scripts/decompose_timestamp_outlier.py`, 7 pytest cases) recomputes each run's
+      offset from its four raw sidecar values, splits it into `frame_delta` + `clock_delta`
+      components plus per-stream consistency checks against the captured WAV length and the
+      sidecar wall stamp, and attributes the repeat-7 outlier when one raw value's
+      characteristic component subset deviates from the 8-run cluster. **Result: no reliable
+      single-component attribution** — `frame_delta`'s +40 ms deviation matches the offset error
+      but its own benign cluster spreads ±24 ms (start-jitter), and the wall anchors spread
+      ±40 ms, so no referent discriminates a 40 ms anomaly. Single-read sidecars under-determine
+      the culprit; no cheaper single-read remedy (e.g. framePosition-vs-length sanity check) is
+      validated. Consequence: 13 (b)'s multi-read logging — whose off-line-point discriminator
+      needs no cross-run referent — is now load-bearing for *both* the outlier rate and the
+      glitch-vs-session-state discrimination; median-of-5 stays the leading remedy candidate but
+      on "no evidence the glitch is session-level" + 13 (b)'s upcoming measurement, not on a
+      proven single-read glitch. Full write-up: `test2-sweep-results.md` "Session A
+      timestamp-outlier decomposition."
     - **(b) Multi-read timestamp logging + unattended batch (device; no rig, no repositioning).**
       `FullDuplexEngine` change: read `getTimestamp` ~10× spread across the session, log all
       reads in the sidecar (nullable list, same honesty rule as the existing single-read

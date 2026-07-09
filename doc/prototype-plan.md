@@ -208,7 +208,19 @@ on a one-observation outlier rate. Three steps, none needing the rig:
    raw `(framePosition, nanoTime)` values, so the repeat-7 anomaly can be attributed to a
    specific component (input vs. output frame position vs. clock delta) across the 9 runs. The
    attribution may enable a cheaper, stronger remedy than medians (e.g. sanity-checking
-   `framePosition` against elapsed capture length).
+   `framePosition` against elapsed capture length). **Done (2026-07-08,
+   `test2-sweep-results.md` "Session A timestamp-outlier decomposition"):
+   no reliable single-component attribution.** `frame_delta`'s +40 ms deviation matches the
+   offset error exactly (pointing at an input `framePosition` glitch) but its own benign cluster
+   spreads ±24 ms — the start-jitter item 10 already measured — and the wall-anchor referents
+   spread ±40 ms, so no single-read referent discriminates a 40 ms anomaly. Single-read sidecars
+   under-determine the culprit; the framePosition-vs-length sanity check this step hoped to
+   validate is *not* free-standing (its `input_minus_wav` cluster spreads 15.6 ms). Consequence:
+   step 2's multi-read logging is now load-bearing for *both* the outlier rate and the
+   glitch-vs-session-state discrimination (its frame-vs-time-line discriminator needs no
+   cross-run referent, sidestepping this under-determination); median-of-5 stays the leading
+   remedy candidate on "no evidence the glitch is session-level" + step 2's measurement, not on
+   a proven single-read glitch.
 2. **Multi-read logging + unattended batch — device, no rig, no repositioning.** Harness change:
    read `getTimestamp` ~10× spread across each session (not once at `stop()`), log all reads in
    the sidecar; then ~30–50 baseline captures via `repeat_sweep_cell.sh`. Yields (i) the outlier
