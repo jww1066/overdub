@@ -248,6 +248,16 @@ scoping, and more decisive:
    PSR ≥ 6dB + ±2ms bar for Test 2's conclusion to extend to production conditions. Fold the
    step-1 SNR-floor re-measurement (band-limited pipeline + real beatbox reference) into this
    step, since the click-train floor did not transfer.
+   **Done (2026-07-08, `test2-sweep-results.md` "Vocal-interference injection study"):** the
+   realistic ratio was pinned in advance at **−12.2 dB** (in-basis close-mic takes 2 and 3 agree
+   exactly — the vocal lands *below* the bleed, the opposite of the "loud vocal" assumption), and
+   the baseline cell clears the click gate at that ratio. The alignment is essentially **immune**
+   to the vocal: the click-anchored GCC-PHAT offset is unchanged by even 1 sample from +0 to
+   +24 dB in-band ratio; the failure mode at +24–30 dB is the vocal burying the *calibration
+   click* (anchor lost, `no-click`), not pulling the alignment — ~36 dB of margin above the
+   realistic ratio. Cross-take robust. The folded-in SNR-floor re-measurement is also done —
+   floor −27..−30 dB in-band, set by click burial, correlator immune (see the step-1 caveat
+   above and `test2-sweep-results.md`).
 
 **Implementation status (2026-07-05):** step 1's Python GCC-PHAT is implemented and its
 synthetic-validation gate passes (`analysis/src/overdub_analysis/gcc_phat.py` +
@@ -256,9 +266,12 @@ offset is within ±1 sample of the injected delay and PSR ≥10 dB; the 6 dB PSR
 broadband periodic click train sits at ≈ −30 dB SNR (run
 `analysis/scripts/sweep_snr_floor.py` to reproduce) — far below any realistic phone-bleed SNR
 for that signal class. (Caveat, added 2026-07-08: that floor did *not* transfer to the real
-signal — the real sweep failed 0/36 full-band — and it has not been re-measured with the
-band-limited pipeline, the real beatbox reference, or vocal interference present; re-measuring it
-is folded into step 3 below.) The synthetic fixtures double as the
+signal — the real sweep failed 0/36 full-band. **Re-measured later the same day with the
+production pipeline** — real click-bearing reference, band-limited 500–4000 Hz, click-anchored
+±90 ms window, ±2 ms gate (`analysis/scripts/sweep_snr_floor_real_reference.py`): the floor is
+**−27..−30 dB in-band SNR, set entirely by calibration-click burial** — the anchored correlator
+posts 0.00 ms error at every SNR where the click anchors, the same anchor-first failure structure
+the vocal study found. See `test2-sweep-results.md` "Synthetic SNR-floor re-measurement.") The synthetic fixtures double as the
 port-correctness regression tests the 093038 review asked for when the algorithm is later
 ported to Kotlin/C++. Step 2's Android capture harness now has its Gradle scaffold, pure-Kotlin
 pieces, the Oboe full-duplex native capture engine (Tier-2 green on a real Pixel 10 as of
@@ -294,7 +307,12 @@ the beat-period peak is a real sharp feature of the reference's autocorrelation)
 is `|gcc_phat_offset - click_offset| ≤ 2 ms` per capture, with the lag window admitting negative
 offsets (or re-basis by trimming to beatbox-only content so the positivity prior holds). Test 2
 step 2 is **not passed**; the 36-cell sweep must be re-run against the click-bearing reference and
-re-gated. See `test2-sweep-results.md` "Calibration click cross-check."**
+re-gated. See `test2-sweep-results.md` "Calibration click cross-check."** **Re-run and re-gated
+(2026-07-08, Session A): 11/11 PASS under the click-anchored gate — the baseline gate cell × 9
+repeats (correlator error mean −1.18 ms, std 0.25 ms, max 1.35 ms) plus the min-bleed and
+HF-rattle extreme cells. The step-2 pass bar — the baseline realistic condition within ±2 ms of
+in-basis ground truth — is met; Session B (the remaining arrangements → the full 36-cell map) is
+confirmatory-only. See `test2-sweep-results.md` "Session A re-capture."**
 
 **What this answers:** Whether the "no calibration step needed" claim in the design doc — which currently rests on GCC-PHAT being appropriate in principle — holds up against actual phone-mic-quality bleed. A failure at step 2 (after step 1 passes) tells you the acoustic environment doesn't have enough SNR, not that the algorithm is wrong.
 
@@ -358,6 +376,8 @@ per-session correlator-error std the budget reconciliation needs, and the stream
 basis-residual stability that feeds Test 1a; Session B: the remaining arrangements to restore
 the full 36-cell alignment/UX-constraint map, run as confirmation if A passes or as
 boundary-location if an extreme fails. Protocol detail: `test2-step2-plan.md` item 11 (c).
+**Session A completed 2026-07-08: 11/11 PASS (see the implementation-status update above);
+Session B is confirmatory-only, run when convenient.**
 
 **Confidence:** GCC-PHAT as a time-delay estimation method is well-supported by peer-reviewed literature (Knapp & Carter 1976). What's untested is device-specific applicability — I have no evidence either way on whether typical phone speaker/mic bleed clears the SNR floor this method needs, and the design doc itself flags this as an open empirical question.
 
@@ -394,10 +414,11 @@ good device" — and generalizing it downward to budget or heavy-OEM-skin hardwa
 get *worse*, not better. (Had it *failed* on Pixel, that would have been near-fatal for the bleed
 approach outright.) There's already adjacent evidence of device variance: the moto g(20) platform-
 latency counter-example (Test 1a) and the Pixel 8/9 200–700ms A/V-sync reports. **Status 2026-07-08:
-the Pixel has not passed — the calibration-click cross-check showed the prior "35/36 clear 6 dB"
-was 35/36 locking onto a beat-period alias, not the true alignment (`test2-sweep-results.md`). So
-the favorable-case existence proof is not yet established; the re-gated sweep (admitting negative
-offsets, judged against the click) is what would establish it.**
+the calibration-click cross-check showed the prior "35/36 clear 6 dB" was 35/36 locking onto a
+beat-period alias, not the true alignment (`test2-sweep-results.md`) — but the re-gated Session A
+re-capture (click-anchored gate) then passed 11/11: the baseline gate cell × 9 repeats plus both
+known-worst extreme cells, correlator error std 0.31 ms. So the favorable-case existence proof now
+stands on the gate cell and the two extremes; the full-matrix Session B re-run is confirmatory.**
 
 **What establishing generalization would take:** re-run the same harness on a deliberate spread (a
 budget device, a heavy-skin device such as Samsung, a mid-tier), logging per device whether
@@ -414,7 +435,7 @@ allowlist or a runtime bleed-SNR self-check. This is a large part of why Test 1a
 self-reported latency, a more nearly device-agnostic mechanism) exists, and why the design contemplates
 per-route/per-device mechanism selection rather than one path for all hardware.
 
-## Test 3 (proposed; revised 2026-07-08) — Multi-hop alignment error simulation
+## Test 3 (revised 2026-07-08; first run 2026-07-08 — conditional PASS) — Multi-hop alignment error simulation
 
 **Model correction (2026-07-08):** as originally framed ("do independent per-hop errors compound
 into cumulative drift"), this test modeled a mechanism the design has already eliminated. Under
@@ -462,6 +483,35 @@ design's own alignment topology, not simulation. The open empirical inputs are t
 bias distribution and the interference-vs-position variance, so **sequencing is unchanged: run
 last of the four** — it consumes Test 1a's, Test 2's, and step 3's outputs.
 
+**First run (2026-07-08, `analysis/scripts/run_multihop_simulation.py` +
+`overdub_analysis/multihop.py`, 8 pytest cases; 20 000 trials/point).** Test 2's and step 3's
+measured outputs existed, so the simulation ran ahead of Test 1a with the one missing input — the
+cross-device bias distribution — swept as a requirement rather than assumed. Three results:
+
+1. **Noise is a non-issue, and the no-chaining arithmetic holds numerically.** With the measured
+   per-hop error std (0.31 ms, Session A) and a flat interference schedule (the vocal study:
+   uncorrelated in-band interference does not move the anchored offset), the 95th-percentile max
+   pairwise offset at N=4 is **1.13 ms** with zero cross-device bias — 7% of the ceiling — and
+   nearly flat in chain length (1.26 ms at N=6).
+2. **The ceiling is consumed almost entirely by cross-device bias.** Under a uniform placeholder
+   distribution the N=4 gate holds through a bias half-range of **±8.25 ms** and fails at
+   ±8.5 ms. This converts the unmeasured distribution into a requirement: per-device systematic
+   biases must agree within ~±8 ms for no-calibration multi-hop to hold; a moto-g(20)-class
+   ~100 ms bias fails outright, so heterogeneous chains need the per-device calibration/self-check
+   the design already contemplates. This ±8 ms is the number the cross-device follow-up
+   (Test 1a on a second device) gets judged against.
+3. **The headphone/timestamp mechanism needs median-of-5 reads, not median-of-3.** At the
+   Session-A-observed 1-in-9 outlier rate (±39.6 ms displacement), a single read fails the gate
+   (p95 ≈ 41 ms) and so does median-of-3 (≈ 39 ms — a ~3.4% per-track outlier-survival rate
+   still lands an outlier inside >5% of N=4 chains); **median-of-5 passes (1.3 ms)**. The 1/9
+   rate rests on one observation, so the script sweeps it: at 1/20, median-of-3 suffices.
+
+**Verdict: conditional PASS.** The 15 ms gate holds at N=4 under the measured noise for either
+mechanism, *conditional on* (a) cross-device bias differences staying within ~±8 ms — now a
+stated requirement on unmeasured hardware, not an assumption — and (b) the timestamp mechanism
+taking ≥5 reads per session with a median (or equivalent outlier rejection). Re-run the script
+when a second device's bias data or a better outlier-rate estimate exists.
+
 ## Explicitly out of scope for this prototype
 
 - Lead-in / count-in UX
@@ -470,7 +520,7 @@ last of the four** — it consumes Test 1a's, Test 2's, and step 3's outputs.
 - Pre-roll buffer sizing
 - Onset detection
 - Forced-speaker calibration chirp / adaptive hybrid routing (headphone fallback) — deferred pending Test 1a's result
-- Explicit re-alignment/correction against the original reference mid-chain (multi-hop drift fallback) — deferred pending Test 3's result
+- Explicit re-alignment/correction against the original reference mid-chain (multi-hop drift fallback) — deferred pending Test 3's result (first run 2026-07-08: needed only if cross-device biases exceed ~±8 ms — see Test 3's verdict)
 
 None of these matter if Test 1, Test 1a, Test 2, or Test 3 fails, and building them now would be scope creep against the design doc's own stated priorities.
 

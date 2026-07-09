@@ -702,5 +702,11 @@ historical and preserved because other docs cite them — e.g. `test2-sweep-resu
     — the gcc offset stays bolted to the bleed peak (±0 samples) from +0 to +24 dB in-band ratio;
     the failure mode at +24–+30 dB is click burial (the vocal overwhelms the calibration anchor,
     quality < 10 dB → no-click), not alignment pulling.** The realistic −12.2 dB ratio has ~36 dB
-    of margin to the boundary. Cross-take robust (take 3 matches). Still open: the synthetic
-    SNR-floor re-measurement, and Session B once captured.
+    of margin to the boundary. Cross-take robust (take 3 matches). ~~Still open: the synthetic
+    SNR-floor re-measurement, and Session B once captured.~~ **SNR-floor re-measurement done
+    (2026-07-08, `analysis/scripts/sweep_snr_floor_real_reference.py`; write-up in
+    `test2-sweep-results.md` "Synthetic SNR-floor re-measurement"): with the production pipeline
+    (real reference, band-limited, click-anchored, ±2 ms gate) the floor is −27..−30 dB in-band
+    SNR, set entirely by click burial — the anchored correlator posts 0.00 ms error at every SNR
+    where the click anchors. Same anchor-first failure structure as the vocal study. Remaining
+    from item 12: only re-running against Session B once captured (confirmatory).**

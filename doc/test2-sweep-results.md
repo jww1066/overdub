@@ -662,9 +662,44 @@ chirp, not a different alignment algorithm. The diagnostic PSR rises with ratio 
 unaffected.
 
 **Cross-take robustness:** take 3 (different `tau_v`, different placement) gives the same boundary —
-the result is not take-2-specific. Still open: the synthetic SNR-floor re-measurement with the
-band-limited pipeline + real beatbox reference (the click-train −30 dB floor did not transfer), and
-running against the eventual full Session B matrix once captured.
+the result is not take-2-specific. Still open: ~~the synthetic SNR-floor re-measurement with the
+band-limited pipeline + real beatbox reference (the click-train −30 dB floor did not transfer)~~
+(done — see the next section), and running against the eventual full Session B matrix once captured.
+
+## Synthetic SNR-floor re-measurement with the production pipeline (item 12 remainder, 2026-07-08)
+
+`analysis/scripts/sweep_snr_floor_real_reference.py` re-measures Test 2 step 1's SNR floor with
+the production-shaped chain the original click-train sweep lacked: the real click-bearing
+reference, the 500–4000 Hz band-limited GCC-PHAT, the click-anchored ±90 ms window, and the
+`|gcc − click| ≤ 2 ms` gate — synthetic capture (injected −80 ms delay, mirroring the harness
+basis), white noise swept downward in **in-band** SNR (the vocal study's convention; for this
+signal the broadband white-noise equivalent is only −1.2 dB off, since the beatbox energy is
+mostly in-band anyway). 3 noise seeds; CSV `sweep_data/snr_floor_real_reference.csv`
+(gitignored, regeneratable).
+
+**Result: the floor is −27 to −30 dB in-band SNR (worst seed −27), and it is set entirely by
+click burial — the anchored correlator itself never fails.** At every SNR where the click clears
+the 10 dB quality floor, both the click onset and the anchored GCC-PHAT offset sit at exactly
+0.00 ms error; below it the verdict flips straight to `no-click` (anchor lost) without an
+intervening region of wrong-but-anchored alignment. Three reads:
+
+1. **The failure-mode structure matches the vocal study exactly** — the anchor is the weakest
+   link, the correlator is immune to uncorrelated in-band interference (white noise here, a
+   performed vocal there). This is now confirmed for both interference classes.
+2. **The number lands where the old click-train floor did (~−30 dB), but for a different
+   reason** — the old floor was where the *correlator's PSR* collapsed on a synthetic click
+   train; the new one is where the *matched-filter anchor* drowns. That the magnitudes agree is
+   coincidence of signal classes, not transfer of the old measurement; the old floor's gate (PSR)
+   is dead, and the old pipeline (full-band, unanchored) demonstrably aliases on the real signal.
+3. **Production margin is enormous.** Session A's weakest cell (min-bleed, quiet/far/pocketed)
+   posted click quality 38.8 dB — ~29 dB of quality margin above the 10 dB floor — and the
+   realistic vocal ratio adds interference ~36 dB below its own burial boundary. A real session
+   would need an ambient/vocal in-band interference ~27 dB *louder than the bleed* before the
+   gate loses its anchor.
+
+Caveat: white noise is the *uncorrelated* interference class, same as the vocal takes. Neither
+probes interference *correlated* with the reference (e.g. another overdubber's stem bleeding in a
+multi-hop session) — that is Test 3's interference-growth model, not a single-capture SNR floor.
 
 ## Next steps (post-sweep)
 
@@ -711,14 +746,14 @@ running against the eventual full Session B matrix once captured.
   `test2-step2-plan.md` item 11 (c). **Session A completed 2026-07-08: 11/11 PASS (baseline ×9
   + both extremes), err std 0.31 ms — see "Session A re-capture" above. Session B (full map) is
   now confirmatory-only.**
-- **Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
+- ~~**Vocal-interference injection study (added 2026-07-08; Test 2 step 3 in `prototype-plan.md`).**
   Mix a dry close-mic vocal take into sweep captures at controlled vocal-to-bleed ratios
-  and re-run the band-limited GCC-PHAT: this sweep measured bleed against a quiet room, but
-  production correlates through a loud vocal sitting exactly in the 500-4000 Hz analysis band. Pin
-  the realistic ratio *before* running; the baseline cell at that ratio must still clear the bar.
-  Pure Python; no device time. (Note: must be re-gated per the item above — judge against the
-  click, not PSR — so it should run against the click-bearing re-capture sweep, not the alias-era
-  click-less captures.)
+  and re-run the band-limited GCC-PHAT~~ — **done (2026-07-08; see "Vocal-interference injection
+  study" above):** ratio pinned in advance at −12.2 dB; alignment immune through +24 dB in-band;
+  failure mode is click burial, ~36 dB above the realistic ratio. The folded-in synthetic
+  SNR-floor re-measurement is also **done** (2026-07-08; see "Synthetic SNR-floor re-measurement"
+  above): floor −27..−30 dB in-band, set by click burial, anchored correlator error 0.00 ms at
+  every anchored point (`sweep_snr_floor_real_reference.py`).
 - ~~Write the dedicated AGC-probe script (`analysis/scripts/probe_agc.py` or similar) that
   decomposes the gain-ratio compression per orientation (subtract noise floor in the power
   domain, fit RMS vs gain, separate device-level from coupling-path compression)~~ -- **done

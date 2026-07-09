@@ -144,7 +144,11 @@ review (`review-20260705-093038.md`).
 `prototype-plan.md`'s Test 1 already builds, rather than requiring new device-routing machinery —
 and if it holds up, it eliminates the entire bleed-dependency question for headphone sessions rather
 than working around it. Options 1 and 3 stay as fallback candidates if option 2's accuracy proves
-unreliable across devices. See `prototype-plan.md`'s Test 1a.
+unreliable across devices. See `prototype-plan.md`'s Test 1a. **Caveat (2026-07-08, Session A
+re-capture):** even on the Pixel 10, 1 of 9 sessions returned a ~40 ms `getTimestamp` outlier
+(the other 8 clustered within ±0.25 ms) — so option 2, if adopted, must read the timestamps
+repeatedly and take a median rather than trusting a single read, and the loopback honesty check
+(Test 1a) remains load-bearing regardless.
 
 ## Chain-of-forwarding alignment error
 
@@ -186,7 +190,12 @@ and (b) **interference growth** — hop k correlates against the original stem t
 k−1 other stems plus the performer's own vocal, so per-hop error worsens with position in the
 chain. `prototype-plan.md`'s Test 3 was revised accordingly (2026-07-08) to model bias +
 position-dependent interference and to gate on the max *pairwise* offset, not a summed
-"cumulative" drift.
+"cumulative" drift. **First run (2026-07-08, conditional PASS):** with the measured per-hop noise
+(0.31 ms std) the N=4 gate sits at 1.13 ms — 7% of the 15 ms ceiling — so the whole budget is
+cross-device bias: the gate holds iff per-device biases agree within **~±8 ms** (a requirement on
+unmeasured hardware, judged when a second device is tested), and the headphone/timestamp
+mechanism needs **median-of-5** timestamp reads to survive the observed 1-in-9 ~40 ms outlier
+rate. See `prototype-plan.md` Test 3 for the full results.
 
 ## Concurrency and threading model (added 2026-07-05)
 
@@ -255,12 +264,17 @@ a damaged file just as the typed variant can.
 
 ## Open items / explicitly deferred
 - Pre-roll buffer size and whether it's needed at all — deferred pending real-world data.
-- Reliability of cross-correlation alignment under low bleed SNR (loud/close-mic vocal vs. quiet
+- ~~Reliability of cross-correlation alignment under low bleed SNR (loud/close-mic vocal vs. quiet
   bleed) — unverified by the 2026-07-05 sweep, which measured bleed against a quiet room only,
-  with no vocal present, in exactly the 500–4000 Hz speech band the correlator now uses.
-  **Scheduled (2026-07-08)** as Test 2 step 3: synthetic vocal-interference injection into the
-  real sweep captures — see `prototype-plan.md`. (Must be re-gated against the calibration click,
-  not PSR — see the beat-period-alias finding above.)
+  with no vocal present, in exactly the 500–4000 Hz speech band the correlator now uses.~~
+  **Resolved (2026-07-08)** by Test 2 step 3 (vocal-interference injection,
+  `test2-sweep-results.md`): the alignment is essentially immune to the vocal — the click-anchored
+  GCC-PHAT offset is unchanged from +0 to +24 dB in-band vocal-to-bleed ratio, and the realistic
+  ratio measured in-basis is **−12.2 dB** (a real close-mic take lands *below* the bleed, the
+  opposite of the "loud vocal" assumption). The failure mode at +24–30 dB is burial of the
+  *calibration click* (the anchor), not alignment pulling — ~36 dB of margin. The vocal is
+  tempo-correlated but not waveform-correlated with the reference, so PHAT sees it as in-band
+  noise, not a competing peak.
 - **Beat-period aliasing of GCC-PHAT against a rhythmic reference (added 2026-07-08).** A
   beatbox-style reference has strong self-similarity at its inter-onset interval (~187 ms for
   `boots.wav`); under real-bleed SNR the PHAT argmax locks onto that alias one beat displaced from
