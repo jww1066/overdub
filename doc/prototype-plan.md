@@ -28,11 +28,16 @@ echo cancellation is v1 work, suppression target ~12 dB; see design-summary.md "
 for v1". The headset-gated items are also **done**: the Tier-2 override test **passed**, so
 `setDeviceId()` can demote an active USB headset and the forced-speaker-chirp direction is viable
 on this device, and the 13(c) headset-route batch is measured — see `test2-sweep-results.md`
-"Headset-route session"): (1) the calibration-signal bake-off — 2–3 musical templates, synthetic
-validation + one capture each (design-summary.md, beat-period-aliasing item); (2) Test 2 Session B
-confirmatory re-capture; (3) Tests 1 + 1a when the rig arrives — the headphone-route honesty check
-is the most consequential remaining measurement (see Test 1a); (4) cross-device bias subtraction
-+ the on-device AGC tone probe when a second device exists.
+"Headset-route session"): (1) the calibration-signal bake-off — **synthetic validation done
+2026-07-09** (3 musical candidates all meet the hard requirements; A/B table + verdict in
+design-summary.md "Beat-period aliasing"; code in `analysis/src/overdub_analysis/calibration_candidates.py`,
+gate in `validate_calibration_candidates.py` + `tests/test_calibration_candidates.py`); **the
+log-sweep-riser is selected as the emitted calibration signal** (post-audition, 2026-07-09; the
+downbeat and shaker-burst remain documented fallbacks); **one on-device capture of the riser
+remains** as the manual checkpoint (Pixel 10 + adb); (2) Test 2 Session B confirmatory re-capture;
+(3) Tests 1 + 1a when the rig arrives — the headphone-route honesty check is the most consequential
+remaining measurement (see Test 1a); (4) cross-device bias subtraction + the on-device AGC tone probe
+when a second device exists.
 
 ## Why these two, and not the others
 

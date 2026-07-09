@@ -349,6 +349,53 @@ a damaged file just as the typed variant can.
   Rejected: "choose a less periodic reference" (the reference is user content) and a
   timestamp-only runtime self-check as the primary gate (it cannot see the session-level desync
   class).
+  **Bake-off synthetic validation — done (2026-07-09).** Three candidates implemented in
+  `analysis/src/overdub_analysis/calibration_candidates.py`, gated by
+  `analysis/scripts/validate_calibration_candidates.py` + `tests/test_calibration_candidates.py`
+  (26 tests, all green). A/B result (the hard requirements, all measured in the 500–4000 Hz band;
+  dominance is gated only for the downbeat, the one that lives among count-in clicks):
+
+  | candidate | in-band % | bw (90pct) | worst sidelobe ±90 ms | beat lobe 187 ms | dominance vs ticks | detect q @0 dB | proc gain |
+  |---|---|---|---|---|---|---|---|
+  | accented-downbeat (50 ms linear chirp 3400→500) | 100% | 2240 Hz | −54.6 dB | −inf | **95.6 dB** | 18.5 dB | 21.2 dB |
+  | log-sweep-riser (300 ms, 500→4000, peak −18 dBFS) | 99.9% | 2717 Hz | −40.5 dB | −88 dB | 76.1 dB | 24.1 dB | 29.7 dB |
+  | shaker-burst (100 ms band-limited noise, fixed seed) | 96.8% | 2950 Hz | −18.5 dB | −314.8 dB | 4.1 dB | 16.5 dB | 25.4 dB |
+
+  **All three meet every hard requirement synthetically** (≥2 kHz in-band bw; sidelobes ≥10 dB down
+  in ±90 ms; ≥10 dB detection quality with 0-sample onset error even at −6 dB in-band SNR; deterministic
+  at onset 0). The A/B distinctions the table exposes, none of which the lab chirp revealed: (1) the
+  **riser** has the most processing gain (29.7 dB — 300 ms × 3120 Hz) and the best in-band aperiodicity
+  margin, so it detects at the lowest emitted level, but it is the longest signal; (2) the
+  **downbeat** is the only one that *belongs* in a count-in (an accented downbeat) and is maximally
+  timbrally distinct from metronome ticks (95.6 dB dominance — the pitch glide vs a static-pitch
+  tick), with the best ±90 ms sidelobes, but its short 50 ms gives the least processing gain so it
+  needs the highest emitted level; (3) the **shaker** has the widest in-band bandwidth and the deepest
+  beat-period lobe (noise is maximally aperiodic) but is the most confusable with *tonal* count-in
+  content (4.1 dB dominance — its flat-in-band spectrum has energy right at a metronome tick's
+  frequency), so it is a poor choice *as a count-in accent* though fine as a standalone lead-in burst.
+  Two design lessons the prototype paid for, recorded for the port: a log sweep + attack-side decay
+  collapses the occupied bandwidth below 2 kHz (energy piles up at the high-f start) — a *linear* sweep
+  with a flat envelope is required to spread energy across the band; and a pulse-compressed signal's
+  matched-filter quality-exclusion must be the ~ms compressed-pulse width, not the template length
+  (excluding the 300 ms template length wiped every competitor and returned quality = inf). **Next: one
+  on-device capture each** (manual checkpoint, Pixel 10 + adb — the synthetic path can't exercise the
+  real speaker→mic band-limiting/reverb/polarity the lab chirp survived at ~34 dB); each capture must
+  confirm ≥10 dB matched-filter detection quality and ≤2 ms onset recovery against the in-basis
+  template, and the user auditions the rendered candidates (`analysis/calibration_bakeoff/`,
+  gitignored) for musicality — which signal reads as belonging in a count-in is a listening judgment,
+  not something the synthetic gate decides.
+  **Selection (2026-07-09, post-audition): use the log-sweep-riser as the emitted calibration signal
+  for now.** All three auditioned well; the riser is chosen for v1 on its detection margin (most
+  processing gain — 29.7 dB — so it detects at the lowest emitted level, ~24 dB quality at 0 dB
+  in-band SNR) and its unobtrusive "riser under the count-in" character. The accented-downbeat and
+  shaker-burst stay as documented fallbacks for later design (e.g. if the riser's 300 ms length or
+  its sustained tone reads as obtrusive on-device, the downbeat is the natural count-in-native
+  substitute — it already dominates metronome ticks by 95.6 dB). The selection is encoded as
+  `SELECTED_CANDIDATE_FACTORY` in `calibration_candidates.py`. **Remaining step:** one on-device
+  capture of the riser through the real speaker→mic path (manual checkpoint, Pixel 10 + adb) to
+  confirm ≥10 dB detection quality and ≤2 ms onset recovery on the route that matters; the lab chirp
+  in `calibration_click.py` is a separate, already-validated Test 2 ground-truth instrument and is
+  not changed by this selection.
 - **Echo cancellation for v1 — YES, v1 work (bleed-mix listening test, 2026-07-09).** The
   vocal-injection study measured the overdub capture carrying reference bleed ~12 dB *above* the
   vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated. The listening test

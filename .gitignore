@@ -71,3 +71,6 @@ Thumbs.db
 analysis/headset_route/
 # Bleed-mix listening-test renders (regenerate with analysis/scripts/render_bleed_mix.py).
 analysis/listening_test/
+# Calibration-signal bake-off renders + audition WAVs (regenerate with
+# analysis/scripts/validate_calibration_candidates.py).
+analysis/calibration_bakeoff/
