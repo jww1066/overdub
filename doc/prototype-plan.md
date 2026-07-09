@@ -19,22 +19,21 @@ design-summary.md "Chain-of-forwarding alignment error").
 | Test | Verdict | What remains |
 |---|---|---|
 | 1 — continuous-buffer stability | **Blocked on the loopback rig** (delivery delayed) | Run when the rig arrives |
-| 1a — timestamp honesty/accuracy | **Partially de-risked** (variance + outlier classes measured rig-free) | Honesty check needs the rig; interim step 3 (headset-route batch) open |
+| 1a — timestamp honesty/accuracy | **Partially de-risked** (variance + outlier classes measured on both routes; interim plan complete 2026-07-09) | Honesty check — most critically on the headphone route — needs the rig |
 | 2 — bleed alignment | **Pass bar met** — Session A 11/11 under the click-anchored gate | Session B (full 36-cell map) is confirmatory-only |
 | 3 — multi-hop error | **Conditional PASS** (closed-form arithmetic) | Conditions: cross-device bias ≤ ~±8 ms (needs device #2); median-of-5 reads + a per-capture rejection gate |
 
-Remaining work in priority order (updated 2026-07-09 — a wired USB-C headset is on hand, and the
-design round recorded in design-summary.md added two analysis items): (1) the never-run Tier-2
-headset-override test — does `setPreferredDevice()` demote an active headset route? — which now
-gates the product's forced-speaker-chirp direction (design-summary.md "Headphone monitoring
-gap"), plus Test 1a interim step 3 (headset-route timestamp batch) in the same device session;
-(2) the bleed-mix listening test — align a Session A capture, mix with the clean reference,
-listen; decides whether echo cancellation is v1 work (design-summary.md "Open items");
-(3) the calibration-signal bake-off — 2–3 musical templates, synthetic validation + one capture
-each (design-summary.md, beat-period-aliasing item); (4) Test 2 Session B confirmatory
-re-capture; (5) Tests 1 + 1a when the rig arrives — the headphone-route honesty check is the
-most consequential remaining measurement (see Test 1a); (6) cross-device bias subtraction + the
-on-device AGC tone probe when a second device exists.
+Remaining work in priority order (updated 2026-07-09 — the headset-gated items are **done**: the
+Tier-2 override test **passed**, so `setDeviceId()` can demote an active USB headset and the
+forced-speaker-chirp direction is viable on this device, and the 13(c) headset-route batch is
+measured — see `test2-sweep-results.md` "Headset-route session"): (1) the bleed-mix listening
+test — align a Session A capture, mix with the clean reference, listen; decides whether echo
+cancellation is v1 work (design-summary.md "Open items"); (2) the calibration-signal bake-off —
+2–3 musical templates, synthetic validation + one capture each (design-summary.md,
+beat-period-aliasing item); (3) Test 2 Session B confirmatory re-capture; (4) Tests 1 + 1a when
+the rig arrives — the headphone-route honesty check is the most consequential remaining
+measurement (see Test 1a); (5) cross-device bias subtraction + the on-device AGC tone probe when
+a second device exists.
 
 ## Why these two, and not the others
 
@@ -218,10 +217,14 @@ testable without it. Three steps:
    *not* a blanket remedy; the session-level class needs an independent per-capture anchor (a
    uniform whole-session shift is invisible even to a line-fit consistency check on the reads).
    Write-up: `test2-sweep-results.md` "Multi-read timestamp batch."
-3. **Headset-route variance batch — open; needs only a wired USB-C headset, no rig.**
-   Variance/outlier statistics on the exact route this test targets need only the route active;
-   the click won't anchor (no bleed), but pure timestamp statistics don't need it. Honesty still
-   waits for the rig.
+3. **Headset-route variance batch — done (2026-07-09).** 41 captures through a USB-C headset
+   (output) + built-in mic (input), the product headphone-session stream shape, over wireless
+   ADB: **41/41 clean, 0/447 off-line reads** — no isolated-glitch anomaly on this route at this
+   sample size; start-jitter std 22.9 ms (~1.7× the speaker route's 13.4 ms). By construction
+   this route has no acoustic anchor, so the session-level desync class and honesty remain the
+   rig's job — unchanged. The same session also passed the Tier-2 headset-override test, so the
+   forced-speaker-chirp fallback is actually buildable on this device if honesty fails here.
+   Write-up: `test2-sweep-results.md` "Headset-route session."
 
 **Rig scoping — why the loopback is still worth running (added 2026-07-08).** After the
 ground-truth correction (Test 2), the rig no longer serves as any test's ±2ms referent, which

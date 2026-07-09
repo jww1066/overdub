@@ -2,6 +2,8 @@ package com.overdub.harness.capture
 
 import android.Manifest
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -12,6 +14,7 @@ import com.overdub.harness.wav.WavFormat
 import com.overdub.harness.wav.readWav
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -129,11 +132,50 @@ class CaptureEngineTest {
 
     @Test
     fun speakerRouteHolds() {
-        // With no headset connected this confirms the default speaker path; the headset-override
-        // variant (Tier-2 list) requires a headset physically connected before the run and is a
-        // manual precondition, not automatable here.
+        // With no headset connected this confirms the default speaker path; the override against
+        // an ACTIVE headset is speakerRouteOverrideHoldsWithHeadsetConnected below (manual
+        // precondition: plug the headset in first).
         val result = capture()
         assertTrue("output route was ${result.outputRoute}, expected the built-in speaker", result.routeIsBuiltinSpeaker)
+    }
+
+    @Test
+    fun speakerRouteOverrideHoldsWithHeadsetConnected() {
+        // The Tier-2 headset-override variant (test2-step2-plan.md): with a headset physically
+        // connected — the manual precondition — does setDeviceId()'s speaker/mic forcing demote
+        // the active headset route for this stream? This is the gating fact for the
+        // forced-speaker-chirp headphone design (design-summary.md "Headphone monitoring gap").
+        // Skips (assumption failure) rather than fails when no headset is present, so the default
+        // suite stays green without one.
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val headsetTypes = setOf(
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        )
+        val headsets = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { it.type in headsetTypes }
+        assumeTrue(
+            "headset-override test needs a headset connected before the run; none found",
+            headsets.isNotEmpty(),
+        )
+
+        val result = capture()
+        assertTrue(
+            "override FAILED: output route was ${result.outputRoute} with " +
+                "${headsets.map { "${it.productName}(type=${it.type})" }} connected",
+            result.routeIsBuiltinSpeaker,
+        )
+        // Corroborate acoustically: if audio really left the built-in speaker, the built-in mic
+        // hears it. A silent capture with a speaker-claiming route would mean the route metadata
+        // lies (audio actually went to the headset) — the failure mode route logging alone misses.
+        assertTrue(
+            "route claims builtin speaker but capture was silent (rms=${result.rms}) — " +
+                "audio likely went to the headset despite the reported route",
+            result.sanityGatePassed,
+        )
     }
 
     @Test

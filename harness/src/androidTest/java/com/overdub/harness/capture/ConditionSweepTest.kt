@@ -190,6 +190,52 @@ class ConditionSweepTest {
     }
 
     @Test
+    fun headsetRouteCapture() {
+        // Item-13 (c) headset-route timestamp study (prototype-plan.md Test 1a interim step 3):
+        // the reference plays into a connected wired/USB headset (manual precondition — the
+        // engine hard-fails if none is connected) while the built-in mic records, the exact
+        // stream/route shape of a product headphone session. The data is the per-stream
+        // getTimestamp statistics on this route; the mic hears only the room, so a sub-floor RMS
+        // is EXPECTED and not asserted, and the calibration click cannot anchor. Output goes to
+        // files/headset_route, never files/sweep — these are not bleed data.
+        val routeDir = File(context.getExternalFilesDir(null), "headset_route").apply { mkdirs() }
+        Log.i(TAG, "=== headset-route capture (~16s): reference -> headset, builtin mic recording ===")
+        Log.i(TAG, "output dir (adb pull this): ${routeDir.absolutePath}")
+
+        val result = engine.runCapture(HEADSET_ROUTE_SPEC, routeDir)
+
+        Log.i(
+            TAG,
+            ("RESULT ${HEADSET_ROUTE_SPEC.captureId}: rms=%.1f xrun=%d dropped=%d route=%s rate=%dHz " +
+                "stream_offset_ms=%s ts_reads=%d file=%s")
+                    .format(
+                        result.rms,
+                        result.xrunCount,
+                        result.droppedFrameCount,
+                        result.outputRoute,
+                        result.sampleRate,
+                        result.streamOffsetMs?.let { "%.2f".format(it) } ?: "UNAVAILABLE",
+                        result.timestampSamples?.size ?: 0,
+                        result.wavFile.name,
+                    ),
+        )
+
+        assertEquals("XRun during capture invalidates this run — retry", 0, result.xrunCount)
+        assertEquals("ring overflow dropped samples — retry", 0L, result.droppedFrameCount)
+        // The route must actually BE the headset — a capture that fell back to the speaker is
+        // measuring the wrong route and must not enter the batch.
+        assertTrue(
+            "output route was ${result.outputRoute}, expected the headset — check the connection and retry",
+            !result.routeIsBuiltinSpeaker,
+        )
+        // Timestamps ARE the measurement here; a run without them carries no data at all.
+        assertTrue(
+            "getTimestamp unavailable — no timestamp data captured, nothing to measure",
+            result.streamOffsetMs != null,
+        )
+    }
+
+    @Test
     fun listConditionIds() {
         // Operator convenience: dump all 36 valid `-e condition <id>` values to logcat.
         Log.i(TAG, "=== 36 valid condition ids for -e condition <id> ===")

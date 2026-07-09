@@ -67,3 +67,5 @@ analysis/.batch_logs/
 Thumbs.db
 *~
 *.swp
+# Item 13 (c) headset-route timestamp batch (41 captures pulled from device).
+analysis/headset_route/

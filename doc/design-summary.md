@@ -183,10 +183,13 @@ honesty validation must de-risk before the product trusts `getTimestamp` blind.
 The multi-read batch changed the calculus: option 2's session-level desync class is undetectable
 on the headphone route without an acoustic anchor, while option 1 — if the route override works —
 gives headphone sessions the same calibration-signal anchor + per-capture gate as the speaker
-route (one mechanism everywhere, timestamps demoted to diagnostics). The gating fact to
-establish next: whether `setPreferredDevice()` can demote an active headset route — the
-never-run Tier-2 headset-override test (`test2-step2-plan.md`, Tier 2); a wired USB-C headset is
-on hand. Option 2 remains the fallback if OEMs refuse the override, and then requires
+route (one mechanism everywhere, timestamps demoted to diagnostics). **Gating fact established
+(2026-07-09): the Tier-2 headset-override test PASSED on the Pixel 10** — `setDeviceId()` demoted
+an active USB headset (route stayed `builtin_speaker`, acoustically corroborated), so the
+forced-speaker chirp is buildable on this device (`test2-sweep-results.md` "Headset-route
+session"). Caveats: wired USB only — Bluetooth untested, and route demotion is per-device OEM
+behavior, so it joins the cross-device list. Option 2 remains the fallback if other OEMs refuse
+the override, and then requires
 median-of-5 reads plus a per-capture rejection gate, rig-validated honesty, and a UX answer for
 the undetectable session-level class. Backstop UX (either route, decided 2026-07-09): a
 **re-take prompt on gate failure** — when the per-take gate fails, tell the performer

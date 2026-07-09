@@ -151,7 +151,22 @@ class CaptureEngine(private val context: Context) {
             )
         }
 
-        val speakerId = builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, output = true)
+        // Output route: built-in speaker by default; a connected headset for the headset-route
+        // mode (spec.outputToHeadset). Input is ALWAYS the built-in mic — the product-realistic
+        // headphone session is headset-out + built-in-mic-in (inline headset mics are poor for
+        // vocals; see prototype-plan.md "Rig scoping").
+        val outputId = if (spec.outputToHeadset) {
+            val id = headsetOutputDeviceId()
+            if (id == -1) {
+                throw CaptureException(
+                    "spec '${spec.captureId}' requires a headset output route but no wired/USB " +
+                        "headset is connected — plug one in and retry",
+                )
+            }
+            id
+        } else {
+            builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, output = true)
+        }
         val micId = builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_MIC, output = false)
 
         val gain = spec.playbackGain.toFloat()
@@ -160,7 +175,7 @@ class CaptureEngine(private val context: Context) {
             sampleRate,
             reference.format.channelCount,
             NativeBridge.INPUT_PRESET_VOICE_RECOGNITION,
-            speakerId,
+            outputId,
             micId,
         )
         if (openResult != NativeBridge.RESULT_OK) {
@@ -240,8 +255,10 @@ class CaptureEngine(private val context: Context) {
             }
 
             val (routeLabel, isSpeaker) = resolveOutputRoute(outputDeviceId)
-            if (!isSpeaker) {
-                Log.w(TAG, "output route is '$routeLabel', not the built-in speaker -- capture may be invalid")
+            val routeMatchesRequest = if (spec.outputToHeadset) !isSpeaker else isSpeaker
+            if (!routeMatchesRequest) {
+                val expected = if (spec.outputToHeadset) "a headset" else "the built-in speaker"
+                Log.w(TAG, "output route is '$routeLabel', not $expected -- capture may be invalid")
             }
             if (xrun > 0) Log.w(TAG, "XRun count $xrun > 0 -- this capture is contaminated")
             if (dropped > 0) Log.w(TAG, "dropped $dropped captured samples (ring overflow)")
@@ -323,6 +340,24 @@ class CaptureEngine(private val context: Context) {
     private fun builtinDeviceId(type: Int, output: Boolean): Int {
         val flag = if (output) AudioManager.GET_DEVICES_OUTPUTS else AudioManager.GET_DEVICES_INPUTS
         return audioManager.getDevices(flag).firstOrNull { it.type == type }?.id ?: -1
+    }
+
+    /** Finds a connected wired/USB headset OUTPUT device id, or -1 if none (BT deliberately */
+    /** excluded — "ruled unpredictable" per design-summary.md; it would need its own study). */
+    private fun headsetOutputDeviceId(): Int {
+        val headsetTypes = intArrayOf(
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+        )
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        // Prefer the more specific types (a USB dongle can enumerate as both USB_DEVICE and
+        // USB_HEADSET; the order above picks the headset-shaped one first).
+        for (type in headsetTypes) {
+            devices.firstOrNull { it.type == type }?.let { return it.id }
+        }
+        return -1
     }
 
     /** Resolves the actual output device id into a label + whether it's the built-in speaker. */

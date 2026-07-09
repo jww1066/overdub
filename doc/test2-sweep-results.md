@@ -973,3 +973,65 @@ before the APK was rebuilt with the 15.25 s clip. All seven are clean captures (
 axis held); the discard is purely about geometry + asset consistency, since `ConditionMetadata`
 records no `reflector_geometry` field that would let a future reader tell them apart from a
 valid cell.
+
+## Headset-route session (2026-07-09) — headset-override test + item 13 (c) timestamp batch
+
+First device session over **wireless ADB** (the headset occupies the Pixel 10's only USB port;
+`adb connect` over Wi-Fi frees it — the phone runs on battery, which is also the product-realistic
+condition). Hardware: a USB-C "USB PnP Audio Device" headset (enumerates as `usb_headset`, output
++ input endpoints).
+
+### Headset-override test: PASS — `setDeviceId()` demotes an active USB headset
+
+The never-run Tier-2 variant now exists
+(`CaptureEngineTest#speakerRouteOverrideHoldsWithHeadsetConnected`; it skips via `assumeTrue` when
+no headset is present, so the default suite stays green without one) and **passed on the first
+run**: with the USB headset active, the capture's output route stayed `builtin_speaker`,
+corroborated acoustically (SANITY PASS rms=240.1 — the tone physically left the built-in speaker
+and reached the built-in mic; route metadata alone could lie, the RMS check is what catches that),
+0 XRuns. **The forced-speaker-chirp headphone direction (design-summary.md "Headphone monitoring
+gap") is viable on this device** — the route-override assumption it rests on holds. Caveats: a
+favorable-case existence proof (Pixel 10, wired USB); Bluetooth is untested (a BT stack may refuse
+demotion) and route demotion is per-device OEM behavior, so this joins the cross-device question
+list.
+
+Incidental finding: the multi-read timestamp series comes back empty on ~1 s test captures (the
+drain-thread sampler's first read fires at 1.5 s), so the "unexpected, investigate" log warning is
+a false alarm for short captures. Real 16 s captures get their ~11 reads. Worth downgrading that
+log message to note the capture-length condition.
+
+### Item 13 (c): headset-route timestamp batch — 41/41 clean, 0/447 off-line reads
+
+New harness mode for the product headphone-session stream shape (headset out + built-in mic in):
+`CaptureSpec.outputToHeadset` / `HEADSET_ROUTE_SPEC` (`captureId "headset_route"`, gain 0.6),
+`ConditionSweepTest#headsetRouteCapture` (writes to `files/headset_route`, never `files/sweep`),
+and the `run_headset_route_batch.sh` operator wrapper. The engine **hard-fails if no headset is
+connected** (never silently falls back to the speaker), and the driver hard-fails a run whose
+route came back as the speaker or whose timestamps are absent — a run that fell back would be
+measuring the wrong route. The built-in mic hears only the room (rms ~19–21, the bare floor —
+matching the vocal-take gain-0 precedent of 23.7), so there is **no acoustic anchor on this route
+by construction**.
+
+Batch: 1 smoke + 40 unattended captures (~11 `getTimestamp` reads each, ~15 min, phone untouched,
+0 hard-fails), pulled to `analysis/headset_route/` (gitignored), analyzed by
+`analyze_timestamp_multiread.py --sweep-dir headset_route` (no click CSV — the structural
+glitch-vs-session-state read only, as scoped). Results:
+
+- **41/41 runs clean; 0/447 off-line reads.** No isolated-glitch-class anomaly on this route at
+  this sample size (vs. 2/43 anomalous runs on the speaker route, item 13 (b)) — every stream's
+  frame-vs-time line is internally consistent across the batch, and median-of-k had nothing to
+  fix. Combined with 13 (b), the observed isolated-glitch rate across both routes is ~2/84
+  sessions.
+- **Start jitter on this route: std 22.9 ms** (median-offset spread across independently-started
+  sessions: mean −117.1 ms, range [−179.9, −72.7] ms) — ~1.7× the speaker route's 13.4 ms
+  (item 10). Benign for the product, which self-measures within one continuous session, but a
+  real per-route difference worth knowing when interpreting any cross-session comparison.
+- **What this batch cannot say, by construction:** nothing about timestamp *honesty*, and nothing
+  about the **session-level desync class** — a uniform whole-session shift leaves every read on a
+  consistent line (item 13 (b)'s corollary) and would hide inside the 22.9 ms start-jitter
+  spread. There is no click on this route, so the loopback rig remains the only instrument for
+  both questions. This batch delivers exactly what 13 (c) was scoped for: variance and
+  isolated-glitch statistics on the Test 1a route.
+
+Tooling note: `analyze_timestamp_multiread.py` gained a population `median-offset spread` stat
+(cross-run start jitter) as part of this run; analysis suite 79/79 green.

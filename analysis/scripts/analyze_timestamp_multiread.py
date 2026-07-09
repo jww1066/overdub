@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import statistics
 from pathlib import Path
 
 from overdub_analysis.timestamp_multiread import (
@@ -156,6 +157,17 @@ def main() -> int:
         run_rate = 100.0 * summary.runs_with_outlier / summary.n_runs
         print(f"off-line read rate: {read_rate:.2f}%  ({summary.total_outliers}/{summary.total_reads})")
         print(f"runs-with-outlier rate: {run_rate:.1f}%  ({summary.runs_with_outlier}/{summary.n_runs})")
+    # Cross-run spread of the median stream offset: on independently-started sessions this is the
+    # per-session start-jitter distribution for the batch's route (item 10 measured 13.4 ms std on
+    # the speaker route). NOT within-session noise, and NOT an honesty statement -- a uniform
+    # session-level shift hides inside this spread and only an independent anchor (click/rig) can
+    # see it.
+    med_offsets = [r.median_stream_offset_ms for r in runs]
+    if len(med_offsets) >= 2:
+        mean_off = statistics.mean(med_offsets)
+        std_off = statistics.stdev(med_offsets)
+        print(f"median-offset spread across runs (start jitter): mean={mean_off:+.2f} ms  "
+              f"std={std_off:.2f} ms  range=[{min(med_offsets):+.2f}, {max(med_offsets):+.2f}]")
     print()
 
     if residuals:

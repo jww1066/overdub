@@ -15,6 +15,14 @@ data class CaptureSpec(
     val distanceCm: Int,
     val orientation: String,
     val obstruction: String,
+    /**
+     * When true, playback is forced to a connected headset (wired/USB) instead of the built-in
+     * speaker — the product-realistic headphone-session shape (headset out + built-in mic in) for
+     * the item-13 (c) headset-route timestamp study. Capture hard-fails if no headset is connected
+     * rather than silently falling back to the speaker. Sweep cells and the vocal take keep the
+     * default (built-in speaker forced).
+     */
+    val outputToHeadset: Boolean = false,
 )
 
 fun Condition.toCaptureSpec(): CaptureSpec = CaptureSpec(
@@ -40,4 +48,22 @@ val VOCAL_TAKE_SPEC = CaptureSpec(
     distanceCm = 10,
     orientation = "handheld",
     obstruction = "none",
+)
+
+/**
+ * Headset-route mode for the item-13 (c) timestamp-variance study (prototype-plan.md Test 1a
+ * "Interim timestamp-variance plan" step 3): the reference plays into a connected wired/USB
+ * headset while the built-in mic records — the exact stream/route shape a product headphone
+ * session uses. The mic hears only the room (no speaker bleed, so the calibration click cannot
+ * anchor and a sub-floor RMS is EXPECTED); the data of interest is purely the per-stream
+ * `getTimestamp` statistics on this route. `distanceCm` is meaningless here (0); the distinct
+ * `captureId` tells sidecar readers which semantics apply, same convention as [VOCAL_TAKE_SPEC].
+ */
+val HEADSET_ROUTE_SPEC = CaptureSpec(
+    captureId = "headset_route",
+    playbackGain = 0.6,
+    distanceCm = 0,
+    orientation = "faceup",
+    obstruction = "none",
+    outputToHeadset = true,
 )

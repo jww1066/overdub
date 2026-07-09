@@ -48,11 +48,10 @@ All build-out stages are done and verified on a physical Pixel 10:
   flakiness was diagnosed on-device (input-side only, during warmup — the input stream started
   before its drainer was live) and fixed by starting output first, gating input reads behind an
   `mInputStarted` flag, draining all available input per callback, and growing the buffers; five
-  consecutive cold runs then showed 0/0 XRuns deterministically. **Open caveat:** the green
-  `speakerRouteHolds` ran with *no headset connected* — the headset-connected override variant
-  (Tier 2 list below) has **never run**, so whether `setPreferredDevice()` can demote an active
-  headset route is unverified, which also gates the feasibility of design-summary.md's
-  forced-chirp fallback.
+  consecutive cold runs then showed 0/0 XRuns deterministically. The headset-connected override
+  variant ran 2026-07-09 and **passed** — `setDeviceId()` demoted an active USB headset — so the
+  routing assumption behind design-summary.md's forced-chirp direction holds on this device (see
+  Tier 2 below and `test2-sweep-results.md` "Headset-route session").
 - **The manual 36-cell Tier-3 sweep ran 2026-07-05**: 36/36 clean captures (0 XRuns, 0 dropped,
   `builtin_speaker`, 48 kHz), driven per-cell by `harness/scripts/run_sweep_cell.sh` as 12
   physical arrangements × 3 programmatic volumes. The first six cells were captured with a
@@ -249,7 +248,7 @@ Pure-Kotlin logic with no Android framework dependency:
 
 ### Tier 2 — Instrumented, on-device automated tests (`connectedDebugAndroidTest`, real hardware, real Oboe/AudioRecord/AudioTrack — no mocks, per `CLAUDE.md`)
 
-All green on the Pixel 10 except the last (never run — needs a headset physically connected):
+All green on the Pixel 10 (the override variant ran 2026-07-09 with a USB headset connected):
 
 - **Full-duplex stream opens successfully** in `LowLatency`/`Exclusive` mode on the target device.
 - **Zero XRuns during a short real capture** of the bundled reference track — hard-fail assertion,
@@ -270,13 +269,14 @@ All green on the Pixel 10 except the last (never run — needs a headset physica
   close cleanly each time. This matters concretely here since a human will be running this dozens of
   times across the real condition matrix; a leak that only shows up on run 15 would otherwise
   surface as a confusing mid-sweep failure.
-- **Speaker-route override actually holds with a real headset connected** — **not yet run** (manual
-  precondition: a wired or Bluetooth headset physically paired/plugged in before this specific test
-  method). `setPreferredDevice()` is called on the assumption it can demote an active headset route
-  for one stream (Components §2), but that assumption is unverified. If it fails on the target
-  device, that's a real finding: the baseline-condition sweep is only valid with no headset
-  connected until this is resolved, and the headphone-monitoring alignment path falls back to
-  Test 1a/design-summary.md's other options.
+- **Speaker-route override actually holds with a real headset connected** — **PASS (2026-07-09,
+  `speakerRouteOverrideHoldsWithHeadsetConnected`;** skips via `assumeTrue` when no headset is
+  present, so the default suite stays green). With a USB headset active, `setDeviceId()` demoted
+  it: the route stayed `builtin_speaker`, corroborated acoustically (non-silent capture through
+  the built-in speaker→mic path — route metadata alone could lie), 0 XRuns. This was the
+  unverified assumption gating design-summary.md's forced-speaker-chirp direction; it holds on
+  the Pixel 10 (wired USB; Bluetooth untested, and demotion is per-device OEM behavior — a
+  cross-device question). Write-up: `test2-sweep-results.md` "Headset-route session."
 
 ### Tier 3 — Manual on-device checkpoints (what neither tier above can honestly assert, per `CLAUDE.md`)
 
@@ -360,9 +360,6 @@ live in `test2-sweep-results.md`.
   convenient. (Had an extreme failed, B would instead have been needed to locate the failure
   boundary.) Judge with `run_click_gated_sweep.py`; also re-run item 12's injection against the
   new captures (confirmatory).
-- **Item 13 (c) — optional headset-route timestamp batch**, if a wired USB-C headset is on hand:
-  timestamp variance/outlier statistics on the exact route Test 1a targets (the click won't anchor
-  without bleed, but pure timestamp statistics don't need it; honesty still waits for the rig).
 - **Item 8, remaining half — the on-device two-gain AGC tone probe** (see "Cross-device
   generalization" above). Needed before any non-Pixel sweep is trusted.
 - Optional cleanup: fold the band-pass into `run_gcc_phat_sweep.py` as a `--band-pass` flag so
@@ -484,3 +481,12 @@ live in `test2-sweep-results.md`.
       route) sees the second class. Read-noise std over clean runs ~0.4 ms; outlier rate 2/43
       (thin, but the two-class split doesn't depend on it). Write-up: `test2-sweep-results.md`
       "Multi-read timestamp batch."
+    - **(c) Headset-route batch** — done 2026-07-09, over wireless ADB (the headset occupies the
+      only USB port). New honest capture mode (`CaptureSpec.outputToHeadset` /
+      `HEADSET_ROUTE_SPEC` / `ConditionSweepTest#headsetRouteCapture` /
+      `run_headset_route_batch.sh`; hard-fails without a headset, never falls back to the
+      speaker): 41/41 runs clean, **0/447 off-line reads** — no isolated-glitch anomaly on this
+      route; start-jitter std 22.9 ms (~1.7× the speaker route's 13.4). No acoustic anchor exists
+      on this route by construction, so honesty and the session-level class stay with the rig.
+      The same session ran the Tier-2 headset-override test (PASS — see Tier 2 above). Write-up:
+      `test2-sweep-results.md` "Headset-route session."
