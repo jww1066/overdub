@@ -15,3 +15,17 @@ fun rms(samples: ShortArray): Double {
     }
     return sqrt(sumSquares / samples.size)
 }
+
+/**
+ * RMS of a float PCM buffer in the buffer's own units (full scale ±1.0). Callers comparing against
+ * int16-scale thresholds (e.g. the capture sanity floor) multiply by 32768.
+ */
+fun rms(samples: FloatArray): Double {
+    if (samples.isEmpty()) return 0.0
+    var sumSquares = 0.0
+    for (sample in samples) {
+        val s = sample.toDouble()
+        sumSquares += s * s
+    }
+    return sqrt(sumSquares / samples.size)
+}

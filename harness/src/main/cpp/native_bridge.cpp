@@ -32,9 +32,10 @@ JNIEXPORT jint JNICALL
 Java_com_overdub_harness_NativeBridge_nativeOpen(JNIEnv * /* env */, jobject /* this */,
                                                  jint sampleRate, jint channelCount,
                                                  jint inputPreset, jint outputDeviceId,
-                                                 jint inputDeviceId) {
+                                                 jint inputDeviceId, jboolean captureFloat) {
     gEngine = std::make_unique<overdub::FullDuplexEngine>();
-    return gEngine->open(sampleRate, channelCount, inputPreset, outputDeviceId, inputDeviceId);
+    return gEngine->open(sampleRate, channelCount, inputPreset, outputDeviceId, inputDeviceId,
+                         captureFloat == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL
@@ -82,6 +83,19 @@ Java_com_overdub_harness_NativeBridge_nativeGetCapturedSamples(JNIEnv *env, jobj
     size_t copied = gEngine->copyCapturedSamples(buffer.data(), count);
     env->SetShortArrayRegion(result, 0, static_cast<jsize>(copied),
                              reinterpret_cast<const jshort *>(buffer.data()));
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_com_overdub_harness_NativeBridge_nativeGetCapturedFloatSamples(JNIEnv *env,
+                                                                    jobject /* this */) {
+    if (!gEngine) return env->NewFloatArray(0);
+    size_t count = gEngine->capturedSampleCount();
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(count));
+    if (result == nullptr || count == 0) return result;
+    std::vector<float> buffer(count);
+    size_t copied = gEngine->copyCapturedSamplesFloat(buffer.data(), count);
+    env->SetFloatArrayRegion(result, 0, static_cast<jsize>(copied), buffer.data());
     return result;
 }
 

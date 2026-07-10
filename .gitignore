@@ -77,6 +77,10 @@ analysis/calibration_bakeoff/
 # NLMS echo-cancellation eval outputs (regenerate with
 # analysis/scripts/run_echo_cancel_eval.py).
 analysis/echo_cancel_eval/
+analysis/echo_cancel_eval_unprocessed/
 # Riser on-device capture (prototype-plan item 1; judged by
 # analysis/scripts/detect_calibration_signal.py).
 analysis/riser_check/
+# Capture-headroom probe captures (test2-sweep-results.md "Capture-headroom probe";
+# judged by analysis/scripts/census_clipping.py).
+analysis/headroom_probe/

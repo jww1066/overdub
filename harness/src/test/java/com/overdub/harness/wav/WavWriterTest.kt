@@ -73,4 +73,51 @@ class WavWriterTest {
             writeWav(shortArrayOf(0), WavFormat(sampleRate = 48000, bitDepth = 24, channelCount = 1))
         }
     }
+
+    @Test
+    fun `float header fields are correct for a known sample buffer`() {
+        // Values beyond int16 full scale on purpose: the float path exists to preserve exactly the
+        // headroom an int16 write would clip (the capture-headroom probe).
+        val samples = floatArrayOf(0.0f, 0.5f, -0.5f, 1.25f, -1.25f)
+        val format = WavFormat(sampleRate = 48000, bitDepth = 32, channelCount = 1)
+
+        val wav = writeWavFloat(samples, format)
+        val buf = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
+
+        val expectedDataSize = samples.size * 4
+        // RIFF(12) + fmt chunk(8+18) + fact chunk(8+4) + data header(8) = 58 bytes before data.
+        assertEquals(58 + expectedDataSize, wav.size)
+
+        assertEquals("RIFF", ascii(wav, 0, 4))
+        assertEquals(wav.size - 8, buf.getInt(4))
+        assertEquals("WAVE", ascii(wav, 8, 4))
+
+        assertEquals("fmt ", ascii(wav, 12, 4))
+        assertEquals(18, buf.getInt(16)) // Subchunk1Size incl. cbSize
+        assertEquals(3, buf.getShort(20).toInt()) // IEEE float
+        assertEquals(1, buf.getShort(22).toInt()) // channel count
+        assertEquals(48000, buf.getInt(24)) // sample rate
+        assertEquals(48000 * 4, buf.getInt(28)) // byte rate
+        assertEquals(4, buf.getShort(32).toInt()) // block align
+        assertEquals(32, buf.getShort(34).toInt()) // bits per sample
+        assertEquals(0, buf.getShort(36).toInt()) // cbSize
+
+        assertEquals("fact", ascii(wav, 38, 4))
+        assertEquals(4, buf.getInt(42))
+        assertEquals(samples.size, buf.getInt(46)) // sample frames (mono)
+
+        assertEquals("data", ascii(wav, 50, 4))
+        assertEquals(expectedDataSize, buf.getInt(54))
+
+        for (i in samples.indices) {
+            assertEquals(samples[i], buf.getFloat(58 + i * 4), 0.0f)
+        }
+    }
+
+    @Test
+    fun `float writer rejects non-32-bit depth`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            writeWavFloat(floatArrayOf(0f), WavFormat(sampleRate = 48000, bitDepth = 16, channelCount = 1))
+        }
+    }
 }

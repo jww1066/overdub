@@ -39,16 +39,22 @@ FullDuplexEngine::~FullDuplexEngine() {
 }
 
 int FullDuplexEngine::open(int32_t sampleRate, int32_t channelCount, int32_t inputPreset,
-                           int32_t outputDeviceId, int32_t inputDeviceId) {
+                           int32_t outputDeviceId, int32_t inputDeviceId, bool captureFloat) {
     mChannelCount = channelCount;
-    mInputScratch.assign(static_cast<size_t>(kMaxFramesPerRead) * channelCount, 0);
+    mCaptureFloat = captureFloat;
+    if (captureFloat) {
+        mInputScratchF.assign(static_cast<size_t>(kMaxFramesPerRead) * channelCount, 0.0f);
+        mRingF.assign(kRingCapacity, 0.0f);
+    } else {
+        mInputScratch.assign(static_cast<size_t>(kMaxFramesPerRead) * channelCount, 0);
+    }
 
     // --- Input stream (opened first so the callback can read from it immediately) ---
     AudioStreamBuilder inputBuilder;
     inputBuilder.setDirection(Direction::Input)
         ->setPerformanceMode(PerformanceMode::LowLatency)
         ->setSharingMode(SharingMode::Exclusive)
-        ->setFormat(AudioFormat::I16)
+        ->setFormat(captureFloat ? AudioFormat::Float : AudioFormat::I16)
         ->setChannelCount(channelCount)
         ->setSampleRate(sampleRate)
         ->setInputPreset(static_cast<oboe::InputPreset>(inputPreset));
@@ -85,6 +91,13 @@ int FullDuplexEngine::open(int32_t sampleRate, int32_t channelCount, int32_t inp
     mActualSampleRate = mOutputStream->getSampleRate();
     mOutputDeviceId = mOutputStream->getDeviceId();
     mInputDeviceId = mInputStream->getDeviceId();
+
+    // The granted input format is diagnostic for the headroom experiment: AAudio converts
+    // framework-side when the HAL's native format differs, so "Float" here does not prove the HAL
+    // path is float -- but a grant that DIDN'T honor the request would make the arm meaningless.
+    LOGI("input stream format requested=%s granted=%s",
+         captureFloat ? "Float" : "I16",
+         oboe::convertToText(mInputStream->getFormat()));
 
     // AAudio LowLatency opens the buffer at a single burst -- the lowest-latency, most
     // underrun-prone size -- which produces warmup XRuns on a cold start. This harness values a
@@ -125,6 +138,7 @@ int FullDuplexEngine::start() {
     {
         std::lock_guard<std::mutex> lock(mAccumMutex);
         mAccumulator.clear();
+        mAccumulatorF.clear();
     }
 
     mInputStarted.store(false, std::memory_order_relaxed);
@@ -274,13 +288,20 @@ std::vector<int64_t> FullDuplexEngine::timestampSamplesFlat() {
 
 size_t FullDuplexEngine::capturedSampleCount() {
     std::lock_guard<std::mutex> lock(mAccumMutex);
-    return mAccumulator.size();
+    return mCaptureFloat ? mAccumulatorF.size() : mAccumulator.size();
 }
 
 size_t FullDuplexEngine::copyCapturedSamples(int16_t *dst, size_t maxCount) {
     std::lock_guard<std::mutex> lock(mAccumMutex);
     size_t n = std::min(maxCount, mAccumulator.size());
     std::memcpy(dst, mAccumulator.data(), n * sizeof(int16_t));
+    return n;
+}
+
+size_t FullDuplexEngine::copyCapturedSamplesFloat(float *dst, size_t maxCount) {
+    std::lock_guard<std::mutex> lock(mAccumMutex);
+    size_t n = std::min(maxCount, mAccumulatorF.size());
+    std::memcpy(dst, mAccumulatorF.data(), n * sizeof(float));
     return n;
 }
 
@@ -296,11 +317,14 @@ oboe::DataCallbackResult FullDuplexEngine::onAudioReady(oboe::AudioStream * /* o
     // scratch buffer), so it stays callback-safe.
     if (mInputStream && mInputStarted.load(std::memory_order_acquire)) {
         while (true) {
-            auto res = mInputStream->read(mInputScratch.data(), kMaxFramesPerRead, 0);
+            void *scratch = mCaptureFloat ? static_cast<void *>(mInputScratchF.data())
+                                          : static_cast<void *>(mInputScratch.data());
+            auto res = mInputStream->read(scratch, kMaxFramesPerRead, 0);
             if (!res || res.value() <= 0) break;
             int32_t framesRead = res.value();
             size_t offered = static_cast<size_t>(framesRead) * ch;
-            size_t pushed = ringPush(mInputScratch.data(), offered);
+            size_t pushed = mCaptureFloat ? ringPush(mRingF, mInputScratchF.data(), offered)
+                                          : ringPush(mRing, mInputScratch.data(), offered);
             if (pushed < offered) {
                 mDroppedFrames.fetch_add(static_cast<int64_t>(offered - pushed),
                                          std::memory_order_relaxed);
@@ -334,25 +358,27 @@ oboe::DataCallbackResult FullDuplexEngine::onAudioReady(oboe::AudioStream * /* o
     return DataCallbackResult::Continue;
 }
 
-size_t FullDuplexEngine::ringPush(const int16_t *src, size_t count) {
+template <typename T>
+size_t FullDuplexEngine::ringPush(std::vector<T> &ring, const T *src, size_t count) {
     const uint64_t w = mRingWrite.load(std::memory_order_relaxed);
     const uint64_t r = mRingRead.load(std::memory_order_acquire);
     const size_t freeSpace = kRingCapacity - static_cast<size_t>(w - r);
     const size_t n = std::min(count, freeSpace);
     for (size_t i = 0; i < n; ++i) {
-        mRing[(w + i) & kRingMask] = src[i];
+        ring[(w + i) & kRingMask] = src[i];
     }
     mRingWrite.store(w + n, std::memory_order_release);
     return n;
 }
 
-size_t FullDuplexEngine::ringPop(int16_t *dst, size_t maxCount) {
+template <typename T>
+size_t FullDuplexEngine::ringPop(std::vector<T> &ring, T *dst, size_t maxCount) {
     const uint64_t r = mRingRead.load(std::memory_order_relaxed);
     const uint64_t w = mRingWrite.load(std::memory_order_acquire);
     const size_t avail = static_cast<size_t>(w - r);
     const size_t n = std::min(maxCount, avail);
     for (size_t i = 0; i < n; ++i) {
-        dst[i] = mRing[(r + i) & kRingMask];
+        dst[i] = ring[(r + i) & kRingMask];
     }
     mRingRead.store(r + n, std::memory_order_release);
     return n;
@@ -360,8 +386,17 @@ size_t FullDuplexEngine::ringPop(int16_t *dst, size_t maxCount) {
 
 void FullDuplexEngine::drainLoop() {
     std::vector<int16_t> temp(4096);
+    std::vector<float> tempF(4096);
     auto drainOnce = [&]() -> size_t {
-        size_t n = ringPop(temp.data(), temp.size());
+        if (mCaptureFloat) {
+            size_t n = ringPop(mRingF, tempF.data(), tempF.size());
+            if (n > 0) {
+                std::lock_guard<std::mutex> lock(mAccumMutex);
+                mAccumulatorF.insert(mAccumulatorF.end(), tempF.begin(), tempF.begin() + n);
+            }
+            return n;
+        }
+        size_t n = ringPop(mRing, temp.data(), temp.size());
         if (n > 0) {
             std::lock_guard<std::mutex> lock(mAccumMutex);
             mAccumulator.insert(mAccumulator.end(), temp.begin(), temp.begin() + n);

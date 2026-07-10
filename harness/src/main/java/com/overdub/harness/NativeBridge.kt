@@ -20,6 +20,9 @@ object NativeBridge {
     /** Oboe [InputPreset::VoiceRecognition] (Components §2: defeats OEM AGC/NS). */
     const val INPUT_PRESET_VOICE_RECOGNITION = 6
 
+    /** Oboe [InputPreset::Unprocessed] (the capture-headroom probe's alternate HAL gain path). */
+    const val INPUT_PRESET_UNPROCESSED = 9
+
     /** oboe::Result::OK, the success value returned by [nativeOpen] / [nativeStart]. */
     const val RESULT_OK = 0
 
@@ -28,8 +31,10 @@ object NativeBridge {
 
     /**
      * Opens the full-duplex streams. [outputDeviceId]/[inputDeviceId] force a route when >= 0 (the
-     * Oboe analogue of setPreferredDevice); pass -1 to leave it unspecified. Returns an oboe::Result
-     * ([RESULT_OK] on success).
+     * Oboe analogue of setPreferredDevice); pass -1 to leave it unspecified. [captureFloat] opens
+     * the INPUT stream as Float instead of I16 (the capture-headroom diagnostic; playback stays
+     * I16 either way) — captured data must then be read via [nativeGetCapturedFloatSamples], not
+     * [nativeGetCapturedSamples]. Returns an oboe::Result ([RESULT_OK] on success).
      */
     external fun nativeOpen(
         sampleRate: Int,
@@ -37,6 +42,7 @@ object NativeBridge {
         inputPreset: Int,
         outputDeviceId: Int,
         inputDeviceId: Int,
+        captureFloat: Boolean,
     ): Int
 
     /** Loads the reference track and sets the playback gain fraction (0.0–1.0). */
@@ -54,8 +60,11 @@ object NativeBridge {
     /** True once the whole reference track has been clocked out. */
     external fun nativeIsPlaybackComplete(): Boolean
 
-    /** The accumulated captured 16-bit PCM (valid after [nativeStop]). */
+    /** The accumulated captured 16-bit PCM (valid after [nativeStop]; I16 mode only). */
     external fun nativeGetCapturedSamples(): ShortArray
+
+    /** The accumulated captured float PCM, full scale ±1.0 (valid after [nativeStop]; Float mode only). */
+    external fun nativeGetCapturedFloatSamples(): FloatArray
 
     /** Max XRun count across both streams (latched at stop); -1 if unavailable. */
     external fun nativeGetXRunCount(): Int

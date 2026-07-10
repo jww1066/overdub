@@ -236,6 +236,73 @@ class ConditionSweepTest {
     }
 
     @Test
+    fun headroomProbe() {
+        // Capture-headroom diagnostic (the ADC-rail finding, doc/guides/offline-dsp.md "census raw
+        // captures"): one capture of the named condition (default: baseline cell) with the capture
+        // format / input preset named by instrumentation args, so the three arms
+        //   i16 + voice_recognition   (control — must REPRODUCE the rail, ~1e3 railed samples)
+        //   float32 + voice_recognition (does a wider capture path un-rail the same signal?)
+        //   float32 + unprocessed       (does the measurement-grade HAL gain path un-rail it?)
+        // are runnable back-to-back with no repositioning. Output goes to files/headroom, never
+        // files/sweep — probe files must not enter sweep analysis (distinct captureId enforces the
+        // same thing in the sidecar). The CLIP CENSUS logcat line is the immediate readout; the
+        // offline judge is analysis/scripts/census_clipping.py on the pulled files.
+        val fmtArg = InstrumentationRegistry.getArguments().getString("capture_format") ?: "float32"
+        val captureFloat = when (fmtArg) {
+            "float32", "float" -> true
+            "i16" -> false
+            else -> throw IllegalArgumentException("unknown capture_format '$fmtArg' (i16|float32)")
+        }
+        val presetArg = InstrumentationRegistry.getArguments().getString("input_preset") ?: "voice_recognition"
+        val preset = CaptureInputPreset.entries.firstOrNull { it.label == presetArg }
+            ?: throw IllegalArgumentException(
+                "unknown input_preset '$presetArg' (${CaptureInputPreset.entries.joinToString("|") { it.label }})",
+            )
+        val condition = resolveCondition(InstrumentationRegistry.getArguments().getString("condition"))
+        val reflectorGeometry =
+            InstrumentationRegistry.getArguments().getString("reflector_geometry")?.takeIf { it.isNotBlank() }
+
+        val spec = condition.toHeadroomProbeSpec(captureFloat = captureFloat, inputPreset = preset)
+        val probeDir = File(context.getExternalFilesDir(null), "headroom").apply { mkdirs() }
+        Log.i(TAG, "=== headroom probe: ${spec.captureId} (${describe(condition)}) geometry=${reflectorGeometry ?: "UNKNOWN"} ===")
+        Log.i(TAG, "output dir (adb pull this): ${probeDir.absolutePath}")
+
+        val result = engine.runCapture(spec, probeDir, reflectorGeometry = reflectorGeometry)
+
+        Log.i(
+            TAG,
+            ("RESULT ${spec.captureId}: rms=%.1f peak=%.6fFS railed=%d xrun=%d dropped=%d " +
+                "route=%s rate=%dHz format=%s file=%s")
+                .format(
+                    result.rms,
+                    result.peakAbs,
+                    result.railedSampleCount,
+                    result.xrunCount,
+                    result.droppedFrameCount,
+                    result.outputRoute,
+                    result.sampleRate,
+                    result.captureFormat,
+                    result.wavFile.name,
+                ),
+        )
+
+        assertEquals("XRun during capture invalidates this arm — retry", 0, result.xrunCount)
+        assertEquals("ring overflow dropped captured samples — retry", 0L, result.droppedFrameCount)
+        assertTrue(
+            "output route was ${result.outputRoute}, not the built-in speaker — disconnect any headset and retry",
+            result.routeIsBuiltinSpeaker,
+        )
+        // A silent probe carries no headroom data at all (unlike a sweep edge cell, where
+        // silence IS the finding) — hard-fail so the operator repositions and retries.
+        assertTrue(
+            "probe capture was silent (rms=${result.rms}) — check speaker volume/positioning and retry",
+            result.sanityGatePassed,
+        )
+        // Railed count is deliberately NOT asserted either way: the control arm SHOULD rail and
+        // the float arms answering "does it?" is the experiment — both outcomes are data.
+    }
+
+    @Test
     fun listConditionIds() {
         // Operator convenience: dump all 36 valid `-e condition <id>` values to logcat.
         Log.i(TAG, "=== 36 valid condition ids for -e condition <id> ===")

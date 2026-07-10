@@ -47,4 +47,18 @@ class RmsTest {
         val samples = ShortArray(2000) { floor }
         assertEquals(500.0, rms(samples), 1e-9)
     }
+
+    @Test
+    fun `float RMS matches the int16 RMS of the same signal after scaling`() {
+        // The capture engine compares float RMS x 32768 against the same int16-scale sanity
+        // floor, so the two overloads must agree on a shared signal.
+        val shorts = ShortArray(4800) { i -> (10000 * sin(2 * PI * 100.0 * i / 48000.0)).toInt().toShort() }
+        val floats = FloatArray(shorts.size) { i -> shorts[i] / 32768.0f }
+        assertEquals(rms(shorts), rms(floats) * 32768.0, rms(shorts) * 1e-4)
+    }
+
+    @Test
+    fun `empty float buffer has zero RMS`() {
+        assertEquals(0.0, rms(FloatArray(0)), 1e-9)
+    }
 }

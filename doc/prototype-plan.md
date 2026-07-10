@@ -47,8 +47,13 @@ re-take gate):
    on-device two-gain AGC tone probe.
 
 Parallel (unblocked, no device needed): the remaining echo-cancellation work — audition the real
-NLMS residuals against the listening test's simulated ec12 rung (renders in
-`analysis/echo_cancel_eval/`, gitignored; regenerate with
+NLMS residuals against the listening test's simulated ec12 rung. **Audition the
+`analysis/echo_cancel_eval_unprocessed/` renders first (2026-07-09): the capture-headroom probe
+resolved the ADC-rail question** — the rail is the `VoiceRecognition` HAL gain path, and
+`InputPreset::Unprocessed` captures the same cell un-railed, passing the riser/click bar with more
+margin and clearing the EC target (21.6 / 15.0 dB) with zero clip repair, so those residuals carry
+no saturation clicks and no muted spans (see `test2-sweep-results.md` "Capture-headroom probe";
+the clipped-capture renders in `analysis/echo_cancel_eval/` remain for A/B; regenerate either with
 `analysis/scripts/run_echo_cancel_eval.py`).
 
 ## Why these two, and not the others

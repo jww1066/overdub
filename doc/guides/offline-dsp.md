@@ -222,8 +222,15 @@ From the offline NLMS echo-cancellation prototype (`overdub_analysis/echo_cancel
   capture-pull time is nearly free and should be part of any new analysis path's intake. The
   remedy that worked: treat railed samples as missing data -- freeze adaptation across them
   (`nlms(adapt_mask=...)`) and mute the residual across them with short fades (`clip_mask` +
-  `mute_spans`) -- but capture headroom (lower input gain / float path) is the better first-order
-  product fix.
+  `mute_spans`) -- but capture headroom is the better first-order product fix. **Headroom probe
+  resolution (2026-07-09):** on the Pixel 10 the rail is the `VoiceRecognition` HAL gain path,
+  clamped *upstream* of the app's sample format -- a Float input stream rails identically at
+  ±1.0 float FS, so "switch to a float capture path" alone fixes nothing; requesting
+  `InputPreset::Unprocessed` (where the OEM honors it) captures un-railed with ~4.7 dB of true
+  headroom at ~16 dB lower gain, and EC then clears its target with zero clip repair. Census a
+  probe arm before trusting any headroom remedy (`analysis/scripts/census_clipping.py`, which
+  also reads float32 WAVs and flags flat-top runs at non-obvious rail values); full write-up:
+  `doc/test2-sweep-results.md` "Capture-headroom probe".
 
 - **An LTI filter converged on average-level content mis-predicts content at a very different
   drive level.** The ~0.9 FS calibration chirp survived EC nearly uncancelled -- the converged

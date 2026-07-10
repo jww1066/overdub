@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import com.overdub.harness.NativeBridge
 import com.overdub.harness.condition.Condition
+import com.overdub.harness.dsp.clipCensus
 import com.overdub.harness.dsp.rms
 import com.overdub.harness.metadata.ConditionMetadata
 import com.overdub.harness.metadata.toJson
@@ -16,6 +17,7 @@ import com.overdub.harness.timestamp.computeStreamOffset
 import com.overdub.harness.wav.WavFormat
 import com.overdub.harness.wav.readWav
 import com.overdub.harness.wav.writeWav
+import com.overdub.harness.wav.writeWavFloat
 import java.io.File
 
 private const val TAG = "OverdubHarness"
@@ -59,6 +61,12 @@ data class CaptureResult(
     val streamOffsetMs: Double?,
     /** Periodic multi-read series (item 13 (b)); null when getTimestamp was unsupported. */
     val timestampSamples: List<StreamTimestamps>? = null,
+    /** Peak |sample| normalized to full scale 1.0 (capture-headroom probe / clip census). */
+    val peakAbs: Double = 0.0,
+    /** Samples at/above int16 full scale — the on-device rail count (offline census is authoritative). */
+    val railedSampleCount: Int = 0,
+    /** "i16" or "float32" — mirrors the sidecar's `capture_format`. */
+    val captureFormat: String = "i16",
 )
 
 /** Thrown when a capture cannot even start (stream open/start failed); a run that starts but is */
@@ -174,9 +182,10 @@ class CaptureEngine(private val context: Context) {
         val openResult = NativeBridge.nativeOpen(
             sampleRate,
             reference.format.channelCount,
-            NativeBridge.INPUT_PRESET_VOICE_RECOGNITION,
+            spec.inputPreset.nativeValue,
             outputId,
             micId,
+            spec.captureFloat,
         )
         if (openResult != NativeBridge.RESULT_OK) {
             throw CaptureException("nativeOpen failed with oboe::Result $openResult")
@@ -193,7 +202,19 @@ class CaptureEngine(private val context: Context) {
             Thread.sleep(CAPTURE_TAIL_MS)
             NativeBridge.nativeStop()
 
-            val captured = NativeBridge.nativeGetCapturedSamples()
+            // Captured samples come back in whichever format the input stream was opened in. Both
+            // branches produce int16-scale RMS (for the shared sanity floor), a clip census (the
+            // headroom probe's go/no-go number, logged for all captures), and the WAV bytes.
+            val capturedShorts: ShortArray?
+            val capturedFloats: FloatArray?
+            if (spec.captureFloat) {
+                capturedFloats = NativeBridge.nativeGetCapturedFloatSamples()
+                capturedShorts = null
+            } else {
+                capturedShorts = NativeBridge.nativeGetCapturedSamples()
+                capturedFloats = null
+            }
+            val capturedCount = capturedShorts?.size ?: capturedFloats!!.size
             val xrun = NativeBridge.nativeGetXRunCount()
             val dropped = NativeBridge.nativeGetDroppedFrameCount()
             val actualRate = NativeBridge.nativeGetActualSampleRate().takeIf { it > 0 } ?: sampleRate
@@ -263,21 +284,34 @@ class CaptureEngine(private val context: Context) {
             if (xrun > 0) Log.w(TAG, "XRun count $xrun > 0 -- this capture is contaminated")
             if (dropped > 0) Log.w(TAG, "dropped $dropped captured samples (ring overflow)")
 
-            val rmsValue = rms(captured)
+            // Float RMS is scaled to int16 units so the one sanity floor serves both formats.
+            val rmsValue = capturedShorts?.let { rms(it) } ?: (rms(capturedFloats!!) * 32768.0)
             val sanityPassed = rmsValue > RMS_SANITY_FLOOR
             // Logcat is the relied-upon sanity channel (works regardless of phone orientation).
             if (sanityPassed) {
-                Log.i(TAG, "SANITY PASS ${spec.captureId}: rms=%.1f samples=%d".format(rmsValue, captured.size))
+                Log.i(TAG, "SANITY PASS ${spec.captureId}: rms=%.1f samples=%d".format(rmsValue, capturedCount))
             } else {
                 Log.w(TAG, "SANITY FAIL ${spec.captureId}: rms=%.1f below floor $RMS_SANITY_FLOOR (signal may not have reached the mic)".format(rmsValue))
             }
 
+            val census = capturedShorts?.let { clipCensus(it) } ?: clipCensus(capturedFloats!!)
+            Log.i(
+                TAG,
+                "CLIP CENSUS ${spec.captureId}: peak=%.6f FS, railed(>=int16 FS)=%d".format(
+                    census.peakAbs, census.railedCount,
+                ),
+            )
+
+            val captureFormat = if (spec.captureFloat) "float32" else "i16"
             val timestamp = System.currentTimeMillis()
             val baseName = "${spec.captureId}_$timestamp"
             val wavFile = File(outputDir, "$baseName.wav")
             val jsonFile = File(outputDir, "$baseName.json")
 
-            wavFile.writeBytes(writeWav(captured, WavFormat(actualRate, 16, reference.format.channelCount)))
+            wavFile.writeBytes(
+                capturedShorts?.let { writeWav(it, WavFormat(actualRate, 16, reference.format.channelCount)) }
+                    ?: writeWavFloat(capturedFloats!!, WavFormat(actualRate, 32, reference.format.channelCount)),
+            )
 
             val metadata = ConditionMetadata(
                 conditionId = spec.captureId,
@@ -286,7 +320,7 @@ class CaptureEngine(private val context: Context) {
                 orientation = spec.orientation,
                 obstruction = spec.obstruction,
                 outputRoute = routeLabel,
-                inputPreset = "voice_recognition",
+                inputPreset = spec.inputPreset.label,
                 sampleRate = actualRate,
                 xrunCount = xrun,
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
@@ -300,6 +334,7 @@ class CaptureEngine(private val context: Context) {
                 streamOffsetMs = streamOffset?.ms,
                 reflectorGeometry = reflectorGeometry,
                 timestampSamples = timestampSamples,
+                captureFormat = captureFormat,
             )
             jsonFile.writeText(metadata.toJson())
 
@@ -307,7 +342,7 @@ class CaptureEngine(private val context: Context) {
                 spec = spec,
                 wavFile = wavFile,
                 jsonFile = jsonFile,
-                capturedSampleCount = captured.size,
+                capturedSampleCount = capturedCount,
                 rms = rmsValue,
                 sanityGatePassed = sanityPassed,
                 xrunCount = xrun,
@@ -317,6 +352,9 @@ class CaptureEngine(private val context: Context) {
                 routeIsBuiltinSpeaker = isSpeaker,
                 streamOffsetMs = streamOffset?.ms,
                 timestampSamples = timestampSamples,
+                peakAbs = census.peakAbs,
+                railedSampleCount = census.railedCount,
+                captureFormat = captureFormat,
             )
         } finally {
             NativeBridge.nativeClose()

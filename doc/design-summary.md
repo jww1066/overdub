@@ -490,6 +490,19 @@ a damaged file just as the typed variant can.
   positions, which the app has at capture time — but capture headroom (lower input gain / float
   path) remains the better first-order fix, since muting discards the performer's vocal across
   those spans too (~tens of ms per take at this rate — small, but nonzero).
+  **Capture-headroom probe — RESOLVED (2026-07-09): the rail is digital, and
+  `InputPreset::Unprocessed` recovers the headroom on the Pixel 10.** A 2×2 of capture format ×
+  input preset on the baseline cell (`test2-sweep-results.md` "Capture-headroom probe") showed:
+  a Float input stream still rails at exactly ±1.0 float FS (the `VoiceRecognition` HAL path
+  clamps upstream of the app's format, so a float pipeline alone fixes nothing), while
+  `Unprocessed` captures the same signal with **zero** railed samples at ~16 dB lower gain
+  (peak ~0.58 FS), the riser/click alignment bar passes with *more* margin (22.2 dB / 0.00 ms),
+  and NLMS echo cancellation clears the target with **no clip repair at all** — 21.6 dB
+  bleed-only / 15.0 dB vocal-present, zero muted spans. Product consequence: the overdub capture
+  path requests `Unprocessed` (i16 remains a sufficient sample format); clip-aware EC is demoted
+  to the fallback for devices that refuse the preset (`Unprocessed` support is OEM-optional —
+  preset honesty joins the cross-device list, and the two-gain AGC probe should run under both
+  presets).
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

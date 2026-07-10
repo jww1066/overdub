@@ -62,6 +62,12 @@ data class ConditionMetadata(
     @SerialName("stream_offset_ms") val streamOffsetMs: Double? = null,
     @SerialName("reflector_geometry") val reflectorGeometry: String? = null,
     @SerialName("timestamp_samples") val timestampSamples: List<StreamTimestamps>? = null,
+    /**
+     * Input-capture sample format the WAV was written in: "i16" (all sweep data) or "float32" (the
+     * capture-headroom probe). Null on legacy sidecars, which are all i16 — readers may treat
+     * null as i16 but must not assume a float file without this saying so.
+     */
+    @SerialName("capture_format") val captureFormat: String? = null,
 )
 
 private val json = Json { ignoreUnknownKeys = true }

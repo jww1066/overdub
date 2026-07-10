@@ -3,6 +3,18 @@ package com.overdub.harness.capture
 import com.overdub.harness.condition.Condition
 
 /**
+ * The input-stream preset a capture requests (a *request* — OEMs honor it inconsistently, which is
+ * why the sidecar records the label). [VOICE_RECOGNITION] is the sweep's canonical preset
+ * (Components §2: defeats OEM AGC/NS); [UNPROCESSED] is the capture-headroom probe's alternate HAL
+ * gain path, designed for measurement with defined sensitivity/headroom where supported.
+ * [nativeValue] mirrors oboe::InputPreset (which mirrors android.media.MediaRecorder.AudioSource).
+ */
+enum class CaptureInputPreset(val nativeValue: Int, val label: String) {
+    VOICE_RECOGNITION(6, "voice_recognition"),
+    UNPROCESSED(9, "unprocessed"),
+}
+
+/**
  * What one capture run actually varies, decoupled from the 36-cell sweep matrix: the identity used
  * for filenames/sidecar `condition_id`, the playback gain, and the physical-arrangement strings
  * recorded in the sidecar. Matrix cells map 1:1 via [toCaptureSpec]; non-matrix runs (the item-12
@@ -23,6 +35,16 @@ data class CaptureSpec(
      * default (built-in speaker forced).
      */
     val outputToHeadset: Boolean = false,
+    /**
+     * When true, the input stream is opened as Float instead of I16 and the capture is written as
+     * a float32 WAV — the capture-headroom diagnostic (design-summary.md "clip census"): if the
+     * int16 rail on kick transients is digital (conversion/gain), the float capture is un-railed;
+     * if the analog front-end saturates, float rails too. Sweep cells keep I16 so sweep data stays
+     * one format.
+     */
+    val captureFloat: Boolean = false,
+    /** Input preset to request; sweep cells keep the canonical [CaptureInputPreset.VOICE_RECOGNITION]. */
+    val inputPreset: CaptureInputPreset = CaptureInputPreset.VOICE_RECOGNITION,
 )
 
 fun Condition.toCaptureSpec(): CaptureSpec = CaptureSpec(
@@ -31,6 +53,21 @@ fun Condition.toCaptureSpec(): CaptureSpec = CaptureSpec(
     distanceCm = distance.approxCm,
     orientation = orientation.label,
     obstruction = obstruction.label,
+)
+
+/**
+ * Capture-headroom probe variant of a matrix cell (the diagnostic experiment for the ADC-rail
+ * finding — `doc/guides/offline-dsp.md` "census raw captures"): same physical arrangement and
+ * playback gain as the cell, but with the requested capture format/preset arm, and a `captureId`
+ * that names the arm so probe files can never masquerade as sweep data.
+ */
+fun Condition.toHeadroomProbeSpec(
+    captureFloat: Boolean,
+    inputPreset: CaptureInputPreset,
+): CaptureSpec = toCaptureSpec().copy(
+    captureId = "headroom_${conditionId}_${if (captureFloat) "float32" else "i16"}_${inputPreset.label}",
+    captureFloat = captureFloat,
+    inputPreset = inputPreset,
 )
 
 /**

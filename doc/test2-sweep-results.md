@@ -1076,3 +1076,57 @@ file's size, so only a content hash catches a stale copy).
 **Consequence:** the riser is confirmed as the v1 emitted calibration signal on the route that
 matters — the bake-off is fully closed. The port implements the riser waveform + the anchored
 ±90 ms window + the `|gcc − signal| ≤ 2 ms` re-take gate.
+
+## Capture-headroom probe (2026-07-09) — the rail is the VoiceRecognition gain path; `Unprocessed` recovers the headroom
+
+The diagnostic experiment for the ADC-rail finding (the EC residual clicks; design-summary.md
+"Echo cancellation for v1" / `doc/guides/offline-dsp.md` clip-census rule). Question: is the
+full-scale railing on kick transients **digital** (a gain/conversion stage the app can route
+around) or **analog** (front-end saturation no format change can fix)? Method: a 2×2 of capture
+format × input preset on the baseline cell, all four arms captured back-to-back with no
+repositioning (`ConditionSweepTest#headroomProbe`, driver `harness/scripts/run_headroom_probe.sh`;
+offline judge `analysis/scripts/census_clipping.py`, captures in `analysis/headroom_probe/`,
+gitignored). Sidecar geometry is recorded *unknown* (unattended session) — comparability is
+anchored instead by the control arm reproducing the rail signature, and the rail mechanism is
+chassis-internal speaker→mic coupling, not reflector-dependent. All four runs clean (xrun=0,
+dropped=0, route=builtin_speaker, rate 48000).
+
+| arm (format + preset) | RMS dBFS | peak (× int16 FS) | railed | flat-top run | verdict |
+|---|---|---|---|---|---|
+| i16 + voice_recognition (control) | −16.4 | 1.000 | 2799 | 2 | RAILED |
+| float32 + voice_recognition | −16.4 | 1.000 (= float FS) | 2892 | 14 | RAILED |
+| float32 + unprocessed | −32.5 | 0.574 | **0** | 1 | CLEAN |
+| i16 + unprocessed | −32.6 | 0.584 | **0** | 1 | CLEAN |
+
+**Findings:**
+
+1. **The clip is digital, upstream of the app's sample format.** The float arm was granted a
+   Float stream and *still* rails — a 14-sample flat top at exactly ±1.0 float full scale — so
+   requesting a wider app-side format recovers nothing: the `VoiceRecognition` HAL path clamps
+   before the format conversion the app sees.
+2. **`InputPreset::Unprocessed` routes around it.** Same signal, same session: zero railed
+   samples, peak ~0.58 FS (~4.7 dB of true headroom above the loudest kick), at ~16.1 dB lower
+   input gain. The waveform is genuinely smooth (flat-top run 1), not just quieter.
+3. **The alignment instruments pass the full bar at the lower gain.** On the i16+unprocessed
+   capture, `detect_calibration_signal.py`: riser quality **22.2 dB** (bar ≥ 10 — *better* than
+   the 17.8 dB riser capture under VoiceRecognition), click 35.6 dB, riser−click delta
+   **0.00 ms**, and the ~−15 ms basis constant reproduces (gt −76.04 vs stream −91.27 ms).
+4. **EC clears the target with no clip repair at all.** `run_echo_cancel_eval.py` on the same
+   capture (`analysis/echo_cancel_eval_unprocessed/`, gitignored): in-band suppression
+   **21.6 dB bleed-only / 15.0 dB vocal-present** (targets 12), clip repair a no-op (0 railed
+   spans — no muting, so no performer audio discarded), residual peak −21.3 dBFS. Compare
+   20.4/14.0 dB on the clipped Session A capture *with* clip-aware muting of 626 ms.
+
+**Consequence (product):** on this device the capture-headroom fix is a one-line input-preset
+change, not a float pipeline and not clip-aware EC — request `Unprocessed` for the overdub
+capture path; i16 remains a sufficient sample format (peak ~0.58 FS). Clip-aware EC
+(`echo_cancel.py` freeze+mute) is demoted to the fallback for devices that refuse the preset.
+
+**Caveats:** single device (Pixel 10), single cell, and `InputPreset::Unprocessed` is
+OEM-optional (`android.media.property.SUPPORT_AUDIO_SOURCE_UNPROCESSED`) — preset honesty joins
+the cross-device list alongside the existing VoiceRecognition-AGC question, and the two-gain AGC
+tone probe should run under *both* presets when built (Unprocessed, where honored, is also the
+cleaner answer to the sweep's gain-ratio-compression finding 2). The sweep's SNR/RMS map was
+measured under VoiceRecognition gain; absolute capture levels under Unprocessed sit ~16 dB lower,
+so any level-derived threshold (e.g. `RMS_SANITY_FLOOR`) needs re-checking if the sweep preset
+ever changes — the probe deliberately left sweep cells on VoiceRecognition.

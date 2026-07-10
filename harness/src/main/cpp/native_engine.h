@@ -34,14 +34,19 @@ public:
     FullDuplexEngine();
     ~FullDuplexEngine() override;
 
-    // Opens both streams (I16, LowLatency, Exclusive, the given channel count and sample rate).
+    // Opens both streams (LowLatency, Exclusive, the given channel count and sample rate). The
+    // output stream is always I16 (the reference asset's format); the input stream is I16 by
+    // default, or Float when captureFloat is set -- the capture-headroom diagnostic
+    // (design-summary.md "clip census" / capture-headroom): if the int16 rail observed on kick
+    // transients is a digital conversion/gain artifact, a Float input stream captures the same
+    // signal un-railed; if the analog front-end saturates, Float rails too and no format helps.
     // The input stream uses the given InputPreset (VoiceRecognition per Components 2, to defeat OEM
     // AGC/NS that would mask the SNR degradation the sweep exists to map). outputDeviceId /
     // inputDeviceId force a specific route when >= 0 (the Oboe equivalent of setPreferredDevice --
     // Kotlin resolves the built-in speaker/mic ids); pass -1 to leave the route unspecified.
     // Returns an oboe::Result cast to int (oboe::Result::OK == 0 on success).
     int open(int32_t sampleRate, int32_t channelCount, int32_t inputPreset,
-             int32_t outputDeviceId, int32_t inputDeviceId);
+             int32_t outputDeviceId, int32_t inputDeviceId, bool captureFloat);
 
     // Copies the reference track into the playback buffer and sets the playback gain fraction
     // (0.0-1.0, applied per-sample in the callback -- the Oboe analogue of AudioTrack.setVolume()
@@ -61,11 +66,19 @@ public:
     // True once the whole reference track has been clocked out of the callback.
     bool isPlaybackComplete() const { return mPlaybackComplete.load(std::memory_order_relaxed); }
 
-    // Number of captured int16 samples accumulated so far (valid after stop()).
+    // Number of captured samples accumulated so far (valid after stop(); counts whichever of the
+    // int16/float accumulators the open() mode filled).
     size_t capturedSampleCount();
 
-    // Copies up to maxCount accumulated samples into dst; returns the number copied.
+    // Copies up to maxCount accumulated int16 samples into dst; returns the number copied.
+    // Valid only when open() was called with captureFloat == false.
     size_t copyCapturedSamples(int16_t *dst, size_t maxCount);
+
+    // Float-mode variant of copyCapturedSamples(); valid only when captureFloat == true.
+    size_t copyCapturedSamplesFloat(float *dst, size_t maxCount);
+
+    // True when open() put the input stream in Float mode.
+    bool isCaptureFloat() const { return mCaptureFloat; }
 
     // Max XRun count across both streams (latched at stop()); -1 if unavailable.
     int32_t xRunCount() const { return mXRunCount; }
@@ -109,8 +122,13 @@ public:
 
 private:
     // --- Lock-free SPSC ring buffer (producer: audio callback; consumer: drain thread) ---
-    size_t ringPush(const int16_t *src, size_t count);
-    size_t ringPop(int16_t *dst, size_t maxCount);
+    // Templated over the sample type: exactly one of mRing/mRingF is active per engine instance
+    // (open() decides), and both share the same write/read counters, so the I16 path stays
+    // bit-identical to the pre-float-mode code.
+    template <typename T>
+    size_t ringPush(std::vector<T> &ring, const T *src, size_t count);
+    template <typename T>
+    size_t ringPop(std::vector<T> &ring, T *dst, size_t maxCount);
 
     void drainLoop();
 
@@ -125,9 +143,10 @@ private:
     bool readStreamTimestampSample();
 
 
-    static constexpr size_t kRingCapacity = 1u << 16;  // 65536 int16 (~1.3s mono at 48k)
+    static constexpr size_t kRingCapacity = 1u << 16;  // 65536 samples (~1.3s mono at 48k)
     static constexpr size_t kRingMask = kRingCapacity - 1;
     std::vector<int16_t> mRing;
+    std::vector<float> mRingF;  // allocated in open() only when captureFloat
     std::atomic<uint64_t> mRingWrite{0};
     std::atomic<uint64_t> mRingRead{0};
     std::atomic<int64_t> mDroppedFrames{0};
@@ -154,12 +173,19 @@ private:
     std::atomic<bool> mInputStarted{false};
 
     // Scratch buffer the callback reads the input stream into (sized in open(), never in the
-    // callback, so the callback stays allocation-free).
+    // callback, so the callback stays allocation-free). One per capture format; only the one
+    // matching mCaptureFloat is sized.
     std::vector<int16_t> mInputScratch;
+    std::vector<float> mInputScratchF;
 
-    // Capture accumulator, filled by the drain thread, read by Kotlin after stop().
+    // Capture accumulator, filled by the drain thread, read by Kotlin after stop(). Same
+    // one-of-two rule as the scratch buffers.
     std::mutex mAccumMutex;
     std::vector<int16_t> mAccumulator;
+    std::vector<float> mAccumulatorF;
+
+    // Input-stream sample format chosen at open() (see open()'s captureFloat doc).
+    bool mCaptureFloat = false;
 
     std::thread mDrainThread;
     std::atomic<bool> mDrainRunning{false};

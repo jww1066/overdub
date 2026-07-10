@@ -44,6 +44,43 @@ class CaptureSpecTest {
     }
 
     @Test
+    fun `sweep cells stay i16 with the canonical voice-recognition preset`() {
+        // Sweep data must remain one format/preset — a cell silently captured as float32 or
+        // through a different HAL gain path would not be comparable with the rest of the matrix.
+        generateConditionMatrix().forEach {
+            val spec = it.toCaptureSpec()
+            assertTrue(!spec.captureFloat)
+            assertEquals(CaptureInputPreset.VOICE_RECOGNITION, spec.inputPreset)
+        }
+    }
+
+    @Test
+    fun `headroom probe spec keeps the cell's arrangement but names the arm`() {
+        val spec = BASELINE_CONDITION.toHeadroomProbeSpec(
+            captureFloat = true,
+            inputPreset = CaptureInputPreset.UNPROCESSED,
+        )
+        // Same physical arrangement and gain as the cell (the probe varies only the capture path).
+        assertEquals(BASELINE_CONDITION.volume.gainFraction, spec.playbackGain, 0.0)
+        assertEquals(BASELINE_CONDITION.distance.approxCm, spec.distanceCm)
+        assertEquals(BASELINE_CONDITION.orientation.label, spec.orientation)
+        // The arm is named in the id, and the id can never collide with a matrix cell id, so probe
+        // files cannot masquerade as sweep data.
+        assertEquals("headroom_${BASELINE_CONDITION.conditionId}_float32_unprocessed", spec.captureId)
+        assertTrue(spec.captureFloat)
+        assertEquals(CaptureInputPreset.UNPROCESSED, spec.inputPreset)
+        val matrixIds = generateConditionMatrix().map { it.conditionId }.toSet()
+        assertTrue("probe id collides with a matrix cell id", spec.captureId !in matrixIds)
+
+        val control = BASELINE_CONDITION.toHeadroomProbeSpec(
+            captureFloat = false,
+            inputPreset = CaptureInputPreset.VOICE_RECOGNITION,
+        )
+        assertEquals("headroom_${BASELINE_CONDITION.conditionId}_i16_voice_recognition", control.captureId)
+        assertTrue(!control.captureFloat)
+    }
+
+    @Test
     fun `vocal take spec is record-only and not a matrix cell`() {
         // Gain must be exactly 0.0 -- any acoustic playback would contaminate the take with real
         // reference bleed, which is precisely what the injection study must control externally.
