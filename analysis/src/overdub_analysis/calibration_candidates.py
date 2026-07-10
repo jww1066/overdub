@@ -51,6 +51,12 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.signal import butter, sosfiltfilt
 
+from overdub_analysis.calibration_click import (
+    CLICK_DURATION_S,
+    LEAD_IN_S,
+    PRE_SILENCE_S,
+)
+
 __all__ = [
     "BAND_LO_HZ",
     "BAND_HI_HZ",
@@ -62,6 +68,10 @@ __all__ = [
     "shaker_burst",
     "ALL_CANDIDATES",
     "SELECTED_CANDIDATE_FACTORY",
+    "SELECTED_MIX_ONSET_S",
+    "MixResult",
+    "mix_into_click_lead_in",
+    "compressed_pulse_exclusion",
     "detect_template",
     "TemplateDetection",
     "evaluate_candidate",
@@ -270,6 +280,99 @@ ALL_CANDIDATES = [accented_downbeat, log_sweep_riser, shaker_burst]
 # selection lives in code; the port implements this waveform.
 SELECTED_CANDIDATE_FACTORY = log_sweep_riser
 
+# Where the selected signal sits in the harness reference asset (the riser
+# on-device capture, doc/prototype-plan.md item 1). Placement is INSIDE the
+# calibration click's 1.0 s lead-in, in the post-click silence: every analysis
+# that trims LEAD_IN_S as "the lead-in" (equal-trim GCC-PHAT, the EC eval
+# renders) stays valid without change, and both ground-truth instruments land
+# in one capture -- the click provides the in-basis truth the riser's <= 2 ms
+# onset-recovery bar is judged against. 0.550 s keeps the riser's onset
+# outside the click detector's +/-300 ms search window (which ends at 0.500 s)
+# and leaves 150 ms of decay room before the beatbox content at 1.000 s.
+# Single source of truth shared by the mixer and the detector scripts.
+SELECTED_MIX_ONSET_S = 0.550
+
+
+@dataclass(frozen=True)
+class MixResult:
+    """Reference asset with the selected calibration signal mixed in.
+
+    Attributes
+    ----------
+    samples :
+        The input samples with the signal added at the known position.
+    signal_onset_sample :
+        Index of the signal's first sample (== onset_s * rate).
+    signal_name :
+        The mixed candidate's name, for the record.
+    signal_length :
+        Template length in samples.
+    """
+
+    samples: np.ndarray
+    signal_onset_sample: int
+    signal_name: str
+    signal_length: int
+
+
+def mix_into_click_lead_in(
+    samples: np.ndarray,
+    rate: int,
+    *,
+    spec: CandidateSpec | None = None,
+    onset_s: float = SELECTED_MIX_ONSET_S,
+    silence_tol: float = 1e-4,
+) -> MixResult:
+    """Mix the selected calibration signal into a click-bearing reference.
+
+    ``samples`` must already carry the calibration-click lead-in
+    (``calibration_click.prepend_click``); the signal is mixed additively at
+    ``onset_s`` in the post-click silence. Guards, in order:
+
+    - the signal must not overlap the click (onset after the click ends);
+    - the signal must end inside the 1.0 s lead-in (before the content);
+    - the target span must currently be silent (catches running this twice,
+      or running it on a click-less/legacy asset whose content starts at 0);
+    - the mix must not clip (redundant given the silence guard, kept as a
+      hard failure rather than a silent saturation).
+    """
+    s = np.asarray(samples, dtype=np.float64).ravel()
+    if spec is None:
+        spec = SELECTED_CANDIDATE_FACTORY(rate)
+    if spec.rate != rate:
+        raise ValueError(f"spec rate {spec.rate} != target rate {rate}")
+    tmpl = np.asarray(spec.template, dtype=np.float64).ravel()
+    onset = round(rate * onset_s)
+    end = onset + tmpl.size
+    click_end = round(rate * (PRE_SILENCE_S + CLICK_DURATION_S))
+    lead_in = round(rate * LEAD_IN_S)
+    if onset < click_end:
+        raise ValueError(
+            f"signal onset {onset} overlaps the calibration click (ends at {click_end})"
+        )
+    if end > lead_in:
+        raise ValueError(
+            f"signal end {end} extends past the {LEAD_IN_S:.3f}s lead-in ({lead_in} samples)"
+        )
+    if s.size < lead_in:
+        raise ValueError(f"input ({s.size} samples) shorter than the lead-in ({lead_in})")
+    span_peak = float(np.max(np.abs(s[onset:end])))
+    if span_peak > silence_tol:
+        raise ValueError(
+            f"target span [{onset}, {end}) is not silent (peak {span_peak:.4f}) -- "
+            "already mixed, or not a click-lead-in asset?"
+        )
+    out = s.copy()
+    out[onset:end] += tmpl
+    if float(np.max(np.abs(out))) > 1.0:
+        raise ValueError("mix clips full scale")
+    return MixResult(
+        samples=out,
+        signal_onset_sample=onset,
+        signal_name=spec.name,
+        signal_length=tmpl.size,
+    )
+
 
 # --- generalized matched-filter detector -------------------------------------
 
@@ -374,6 +477,25 @@ def fftconvolve_local(y: np.ndarray, tmpl: np.ndarray) -> np.ndarray:
     from scipy.signal import fftconvolve
 
     return np.abs(fftconvolve(y, tmpl[::-1], mode="valid"))
+
+
+def compressed_pulse_exclusion(template: np.ndarray, rate: int) -> int:
+    """Quality-exclusion half-width (samples) for ``detect_template``.
+
+    A pulse-compressed signal's matched-filter peak is ~1/bandwidth wide
+    regardless of how long the template is, so the competing-peak exclusion
+    must be a few compressed-pulse widths, NOT the template length --
+    excluding the whole template length wipes every competitor and returns
+    quality = inf (the bake-off's original bug for the 300 ms riser / 100 ms
+    shaker). 4x the pulse width spans the main lobe plus the near reverb
+    shoulder; floor of 1 ms.
+    """
+    tmpl = np.asarray(template, dtype=np.float64).ravel()
+    spec_fft = np.fft.rfft(tmpl)
+    freqs = np.fft.rfftfreq(tmpl.size, d=1.0 / rate)
+    _, _, bw_10 = _band_energy_span(spec_fft, freqs, BAND_LO_HZ, BAND_HI_HZ)
+    pulse_width = max(round(rate / max(bw_10, 500.0)), round(rate * 0.001))
+    return 4 * pulse_width
 
 
 # --- metrics: the bake-off evaluation ---------------------------------------
@@ -549,16 +671,11 @@ def evaluate_candidate(
     worst = _sidelobe_db(ac, rate, exclusion_ms, exclusion_ms, max_lag_ms)
     beat = _sidelobe_db(ac, rate, exclusion_ms, beat_lag_ms - beat_window_ms, beat_lag_ms + beat_window_ms)
 
-    # Detection quality under the simulated realistic capture path. The
-    # quality-exclusion half-width is the compressed-pulse main-lobe width
-    # (~1/bandwidth, a few ms), NOT the template length: a pulse-compressed
-    # signal's matched-filter peak is narrow regardless of how long the
-    # template is, and excluding the whole template length would wipe every
-    # competitor in the short test capture (the bug that returned quality=inf
-    # for the 300 ms riser / 100 ms shaker).
+    # Detection quality under the simulated realistic capture path, with the
+    # compressed-pulse-width quality exclusion (see compressed_pulse_exclusion
+    # for why it must not be the template length).
     rng = np.random.default_rng(seed)
-    pulse_width = max(round(rate / max(bw_10, 500.0)), round(rate * 0.001))
-    exclusion_samples = 4 * pulse_width  # main lobe + near reverb shoulder
+    exclusion_samples = compressed_pulse_exclusion(tmpl, rate)
     detection: dict = {}
     for snr in snrs_db:
         cap = _simulated_capture(tmpl, rate, detection_delay_samples, snr, rng)

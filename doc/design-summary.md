@@ -395,7 +395,11 @@ a damaged file just as the typed variant can.
   capture of the riser through the real speaker→mic path (manual checkpoint, Pixel 10 + adb) to
   confirm ≥10 dB detection quality and ≤2 ms onset recovery on the route that matters; the lab chirp
   in `calibration_click.py` is a separate, already-validated Test 2 ground-truth instrument and is
-  not changed by this selection.
+  not changed by this selection. The no-device prep is done (2026-07-09): the riser is mixed into
+  the harness asset at 0.550 s inside the click lead-in (`mix_calibration_signal.py`,
+  `SELECTED_MIX_ONSET_S`), and `detect_calibration_signal.py` judges the pass bar per capture with
+  the ≤2 ms recovery measured against the click in the same capture (a real capture's true onset
+  is unknown, so the click is the in-basis truth) — see `doc/prototype-plan.md` item 1.
 - **Echo cancellation for v1 — YES, v1 work (bleed-mix listening test, 2026-07-09).** The
   vocal-injection study measured the overdub capture carrying reference bleed ~12 dB *above* the
   vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated. The listening test

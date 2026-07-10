@@ -21,12 +21,22 @@ import pytest
 from overdub_analysis.calibration_candidates import (
     BAND_HI_HZ,
     BAND_LO_HZ,
+    SELECTED_CANDIDATE_FACTORY,
+    SELECTED_MIX_ONSET_S,
     accented_downbeat,
+    compressed_pulse_exclusion,
     count_in_scenario,
     detect_template,
     evaluate_candidate,
     log_sweep_riser,
+    mix_into_click_lead_in,
     shaker_burst,
+)
+from overdub_analysis.calibration_click import (
+    LEAD_IN_S,
+    PRE_SILENCE_S,
+    detect_click,
+    prepend_click,
 )
 
 RATE = 48000
@@ -173,3 +183,112 @@ def test_detect_template_rejects_short_capture():
     spec = accented_downbeat(rate=RATE)
     with pytest.raises(ValueError):
         detect_template(np.zeros(10), spec.template, RATE)
+
+
+# --- mixing the selected signal into the click lead-in ------------------------
+# (prep for the riser on-device capture, doc/prototype-plan.md item 1)
+
+
+def _click_bearing_asset(rng: np.random.Generator, content_s: float = 2.0) -> np.ndarray:
+    """A stand-in reference: click lead-in + noise 'content' at -20 dBFS peak."""
+    content = 0.1 * rng.standard_normal(round(RATE * content_s))
+    return prepend_click(content, RATE).samples
+
+
+def test_mix_places_selected_template_at_known_onset():
+    rng = np.random.default_rng(11)
+    asset = _click_bearing_asset(rng)
+    result = mix_into_click_lead_in(asset, RATE)
+    spec = SELECTED_CANDIDATE_FACTORY(RATE)
+    assert result.signal_onset_sample == round(RATE * SELECTED_MIX_ONSET_S)
+    assert result.signal_name == spec.name
+    # The span was silent, so mixing == placement: the template is bit-exact.
+    onset = result.signal_onset_sample
+    np.testing.assert_array_equal(result.samples[onset : onset + spec.template.size], spec.template)
+    # Everything outside the span is untouched.
+    np.testing.assert_array_equal(result.samples[:onset], asset[:onset])
+    np.testing.assert_array_equal(
+        result.samples[onset + spec.template.size :], asset[onset + spec.template.size :]
+    )
+
+
+def test_mix_selected_span_lies_inside_the_lead_in():
+    """The placement invariant: after the click ends, before the content starts."""
+    spec = SELECTED_CANDIDATE_FACTORY(RATE)
+    onset = round(RATE * SELECTED_MIX_ONSET_S)
+    assert onset + spec.template.size <= round(RATE * LEAD_IN_S)
+    # Outside the click detector's +/-300 ms search window (ends at 0.500 s).
+    assert onset > round(RATE * (PRE_SILENCE_S + 0.300))
+
+
+def test_mix_rejects_double_mix_and_wrong_asset():
+    rng = np.random.default_rng(12)
+    asset = _click_bearing_asset(rng)
+    once = mix_into_click_lead_in(asset, RATE)
+    with pytest.raises(ValueError, match="not silent"):
+        mix_into_click_lead_in(once.samples, RATE)  # running it twice
+    # A click-less asset (content starts at 0) fails the same silence guard.
+    with pytest.raises(ValueError, match="not silent"):
+        mix_into_click_lead_in(0.1 * rng.standard_normal(RATE * 2), RATE)
+
+
+def test_mix_rejects_bad_placement():
+    rng = np.random.default_rng(13)
+    asset = _click_bearing_asset(rng)
+    with pytest.raises(ValueError, match="overlaps the calibration click"):
+        mix_into_click_lead_in(asset, RATE, onset_s=0.200)
+    with pytest.raises(ValueError, match="past the .*lead-in"):
+        mix_into_click_lead_in(asset, RATE, onset_s=0.900)  # 0.9 + 0.3 > 1.0
+
+
+def test_mixed_asset_round_trip_under_realistic_path():
+    """The on-device pass bar, simulated: band-limited + polarity-inverted +
+    delayed + in-band noise. Both instruments must detect, and the riser's
+    offset must agree with the click's (the in-basis ground truth the <= 2 ms
+    on-device recovery bar is judged against) to within 2 ms."""
+    from scipy.signal import butter, sosfiltfilt
+
+    rng = np.random.default_rng(14)
+    asset = _click_bearing_asset(rng, content_s=3.0)
+    mixed = mix_into_click_lead_in(asset, RATE)
+    spec = SELECTED_CANDIDATE_FACTORY(RATE)
+
+    delay = 3000
+    cap = np.concatenate([np.zeros(delay), mixed.samples])
+    sos = butter(4, [BAND_LO_HZ, BAND_HI_HZ], btype="bandpass", fs=RATE, output="sos")
+    cap = -sosfiltfilt(sos, cap)  # polarity-inverted, band-limited path
+    # In-band noise at ~20 dB below the riser's RMS over its own span -- well
+    # inside the click's measured ~34 dB on-device survival margin.
+    riser_rms = float(np.sqrt(np.mean(spec.template**2)))
+    noise = sosfiltfilt(sos, rng.standard_normal(cap.size))
+    noise *= (riser_rms / 10.0) / float(np.sqrt(np.mean(noise**2)))
+    cap = cap + noise
+
+    excl = compressed_pulse_exclusion(spec.template, RATE)
+    sig_ref = round(RATE * SELECTED_MIX_ONSET_S)
+    half = round(RATE * 0.300)
+    sig_det = detect_template(
+        cap, spec.template, RATE,
+        search_window=(sig_ref - half, sig_ref + half),
+        quality_exclusion=excl,
+    )
+    click_ref = round(RATE * PRE_SILENCE_S)
+    click_det = detect_click(cap, RATE, search_window=(max(0, click_ref - half), click_ref + half))
+
+    assert sig_det.quality_db >= 10.0
+    assert click_det.quality_db >= 10.0
+    sig_gt = sig_det.onset_sample - sig_ref
+    click_gt = click_det.onset_sample - click_ref
+    assert abs(sig_gt - delay) <= 2
+    assert abs(sig_gt - click_gt) <= round(RATE * 0.002)
+
+
+def test_compressed_pulse_exclusion_is_pulse_width_not_template_length():
+    """The riser's exclusion must be ~ms-scale (the compressed-pulse width),
+    far below its 300 ms template length -- a template-length exclusion wipes
+    every competitor and returns quality = inf (the bake-off's original bug)."""
+    spec = log_sweep_riser(rate=RATE)
+    excl = compressed_pulse_exclusion(spec.template, RATE)
+    assert excl >= round(RATE * 0.001)
+    assert excl <= round(RATE * 0.020)
+    assert excl < spec.template.size // 3
