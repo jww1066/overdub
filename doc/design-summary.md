@@ -399,7 +399,16 @@ a damaged file just as the typed variant can.
   the harness asset at 0.550 s inside the click lead-in (`mix_calibration_signal.py`,
   `SELECTED_MIX_ONSET_S`), and `detect_calibration_signal.py` judges the pass bar per capture with
   the ≤2 ms recovery measured against the click in the same capture (a real capture's true onset
-  is unknown, so the click is the in-basis truth) — see `doc/prototype-plan.md` item 1.
+  is unknown, so the click is the in-basis truth).
+  **On-device capture — PASS (2026-07-09, bake-off closed).** Baseline cell, canonical wall
+  geometry, clean run (xrun=0): riser detection quality **17.8 dB** (bar ≥ 10, compressed-pulse
+  exclusion), onset recovery **0.00 ms vs the click** (bar ≤ 2 ms) — both instruments recovered
+  the identical −2847-sample offset, and ground truth − `stream_offset_ms` reproduced the known
+  ~−15 ms basis constant. The riser is confirmed as the v1 emitted calibration signal on the route
+  that matters; the port implements the riser waveform + the anchored ±90 ms window + the
+  |gcc − signal| ≤ 2 ms re-take gate. Full record: `test2-sweep-results.md` "Riser on-device
+  capture" (including the capture's 2550-sample clip census — the known ADC-rail class again,
+  re-confirming capture headroom as the first-order product fix).
 - **Echo cancellation for v1 — YES, v1 work (bleed-mix listening test, 2026-07-09).** The
   vocal-injection study measured the overdub capture carrying reference bleed ~12 dB *above* the
   vocal (ratio −12.2 dB), so a speaker-route stem is bleed-dominated. The listening test

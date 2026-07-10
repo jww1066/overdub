@@ -29,30 +29,21 @@ clears that target on real captures** (bleed-only 18.4/18.3 dB, vocal-present 14
 see design-summary.md "Echo cancellation for v1"). The headset-gated items are also **done**: the
 Tier-2 override test **passed**, so `setDeviceId()` can demote an active USB headset and the
 forced-speaker-chirp direction is viable on this device, and the 13(c) headset-route batch is
-measured — see `test2-sweep-results.md` "Headset-route session"):
+measured — see `test2-sweep-results.md` "Headset-route session". **The calibration-signal
+bake-off is fully closed (2026-07-09): the riser on-device capture PASSES** — quality 17.8 dB
+(bar ≥ 10), onset recovery 0.00 ms vs the click (bar ≤ 2 ms), sample-exact agreement between the
+two independent instruments; see `test2-sweep-results.md` "Riser on-device capture". The asset
+chain and pass-bar judge are `mix_calibration_signal.py` / `detect_calibration_signal.py` +
+`verify_apk_asset.py`, with the riser mixed at `SELECTED_MIX_ONSET_S` (0.550 s) inside the click
+lead-in — see `reference_track_README.md` for the 3-step generation chain and pairing rule. The
+port implements the riser waveform + the anchored ±90 ms window + the |gcc − signal| ≤ 2 ms
+re-take gate):
 
-1. **The riser on-device capture** — the calibration-signal bake-off's one remaining step
-   (synthetic validation + audition done 2026-07-09; the **log-sweep-riser is selected**, with the
-   accented-downbeat and shaker-burst as documented fallbacks; code in
-   `analysis/src/overdub_analysis/calibration_candidates.py`, gate in
-   `validate_calibration_candidates.py` + `tests/test_calibration_candidates.py`). **Both
-   no-device prep pieces are done (2026-07-09):** (a) `analysis/scripts/mix_calibration_signal.py`
-   mixes `SELECTED_CANDIDATE_FACTORY`'s template at `SELECTED_MIX_ONSET_S` (0.550 s, inside the
-   click lead-in's post-click silence — every `LEAD_IN_S` trim stays valid, and the click stays in
-   the same capture as the independent ground truth), with a silence guard against double-mixing
-   and a both-instruments round-trip self-check; the harness asset is regenerated (see
-   `reference_track_README.md` for the 3-step chain and the updated pairing rule). (b)
-   `analysis/scripts/detect_calibration_signal.py` matched-filters the riser with the
-   compressed-pulse-width quality exclusion (`compressed_pulse_exclusion`, ~4 ms — not the 300 ms
-   template length) and judges the pass bar per capture: quality >= 10 dB AND
-   |riser_gt − click_gt| <= 2 ms (the <= 2 ms onset-recovery bar is judged against the click,
-   since a real capture's true onset is unknown). Remaining: rebuild the APK with the new asset
-   and run the capture through the real speaker->mic path (manual checkpoint, Pixel 10 + adb).
-2. **Test 2 Session B** confirmatory re-capture (device time, no code work — can share the same
-   device session as item 1).
-3. **Tests 1 + 1a when the rig arrives** — the headphone-route honesty check is the most
+1. **Test 2 Session B** confirmatory re-capture (device time, no code work — the riser-bearing
+   asset is already installed, and Session B captures made with it carry both instruments).
+2. **Tests 1 + 1a when the rig arrives** — the headphone-route honesty check is the most
    consequential remaining measurement (see Test 1a).
-4. **Cross-device work** when a second device exists: bias subtraction (Test 3's ±8 ms gate) + the
+3. **Cross-device work** when a second device exists: bias subtraction (Test 3's ±8 ms gate) + the
    on-device two-gain AGC tone probe.
 
 Parallel (unblocked, no device needed): the remaining echo-cancellation work — audition the real

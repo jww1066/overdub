@@ -1035,3 +1035,44 @@ glitch-vs-session-state read only, as scoped). Results:
 
 Tooling note: `analyze_timestamp_multiread.py` gained a population `median-offset spread` stat
 (cross-run start jitter) as part of this run; analysis suite 79/79 green.
+
+## Riser on-device capture (2026-07-09) — the selected calibration signal PASSES the pass bar
+
+The calibration-signal bake-off's one remaining step (prototype-plan item 1): one capture of the
+**log-sweep riser** (the selected per-take calibration signal, `SELECTED_CANDIDATE_FACTORY`)
+through the real speaker→mic path, judged by `analysis/scripts/detect_calibration_signal.py`.
+Asset generation: the riser mixed at 0.550 s inside the click lead-in (`mix_calibration_signal.py`;
+see `reference_track_README.md`), clean-rebuilt APK with the packaged asset CRC-verified against
+the source (`harness/scripts/verify_apk_asset.py` — the asset regeneration does not change the
+file's size, so only a content hash catches a stale copy).
+
+- **Cell:** `conversational_armslength_faceup_none` (the gate-critical baseline), canonical wall
+  geometry, `stream_volume_index` 25. First attempt hard-failed xrun=8 (fresh-install warmup) and
+  was discarded per protocol; the accepted run is clean (xrun=0, dropped=0, route=builtin_speaker).
+- **Capture:** `conversational_armslength_faceup_none_1783648191166.wav` (+ sidecar), pulled to
+  `analysis/riser_check/` (gitignored; this section is the durable record).
+
+**Result — PASS on both bars:**
+
+| instrument | detected onset | quality | ground-truth offset |
+|---|---|---|---|
+| riser (compressed-pulse exclusion, 192 samples / 4 ms) | 23553 | **17.8 dB** (bar ≥ 10) | −59.31 ms |
+| calibration click (the independent in-basis truth) | 6753 | 34.1 dB | −59.31 ms |
+
+- **Onset recovery: delta = 0.00 ms** — the riser and the click recover the *identical* −2847-sample
+  offset, sample-exact agreement between two independent matched-filter instruments (bar ≤ 2 ms).
+- **Basis-constant cross-check:** sidecar `stream_offset_ms` = −74.04; ground truth − stream offset
+  = +14.7 ms, consistent with the multi-read study's ~−15 ms healthy-population measurement-basis
+  constant (`median(single − click)`), i.e. this capture sits squarely in the healthy class.
+- **Clip census (trap (f) intake rule): 2550 full-scale samples** — the known ADC-rail-on-kick-
+  transients defect class again, at conversational volume. Harmless to matched-filter detection
+  (this capture's consumer) and to GCC-PHAT; it re-confirms that **capture headroom is the
+  first-order product fix** before any linear EC consumes speaker-route captures.
+- Margin note: on-device riser quality (17.8 dB) sits below the synthetic 0-dB-SNR figure
+  (24.1 dB) but 7.8 dB above the bar; competitor location was not diagnosed since the gate passed
+  with margin — if a future capture reads low, check whether the competing peak is the room's
+  reverb shoulder (a few ms after the peak) before re-tuning `--exclusion-ms`.
+
+**Consequence:** the riser is confirmed as the v1 emitted calibration signal on the route that
+matters — the bake-off is fully closed. The port implements the riser waveform + the anchored
+±90 ms window + the `|gcc − signal| ≤ 2 ms` re-take gate.

@@ -77,3 +77,6 @@ analysis/calibration_bakeoff/
 # NLMS echo-cancellation eval outputs (regenerate with
 # analysis/scripts/run_echo_cancel_eval.py).
 analysis/echo_cancel_eval/
+# Riser on-device capture (prototype-plan item 1; judged by
+# analysis/scripts/detect_calibration_signal.py).
+analysis/riser_check/
