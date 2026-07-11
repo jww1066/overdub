@@ -503,6 +503,29 @@ a damaged file just as the typed variant can.
   to the fallback for devices that refuse the preset (`Unprocessed` support is OEM-optional —
   preset honesty joins the cross-device list, and the two-gain AGC probe should run under both
   presets).
+  **Unprocessed-residual audition (2026-07-11): expected classes only; the solo residual is NOT
+  the product-relevant listening test.** The audition of
+  `analysis/echo_cancel_eval_unprocessed/` reported the bleed-only residual as soft with faint
+  click-like artifacts, and the vocal-present residual as carrying a "distorted"-sounding beatbox
+  remnant. `diagnose_ec_residual.py` confirms all three observations are the predicted benign
+  classes, none the old saturation class: (1) *soft is the suppression itself* — the render set
+  shares one attenuate-only honesty gain anchored to the capture (peak −4.7 dBFS), so a residual
+  with 21.6 dB removed sits at −21.3 dBFS peak by construction; (2) the *clicks are the
+  beat-transient mechanism residue* (157/157 click events within 30 ms of a reference beat onset,
+  **0 clipped samples** anywhere — the residue an LTI filter must leave at kick onsets where the
+  speaker/mic chain behaves nonlinearly), now at ~−21 dBFS vs the old −4.5 dBFS saturation
+  clicks, ~17 dB quieter; (3) the *distorted beatbox remnant is EC working as designed* — after
+  15 dB suppression the bleed sits ~3 dB below the vocal, and what survives is by construction
+  only the component that does NOT match the clean reference (bleed-path HF coloration + speaker
+  transient distortion), so it inherently sounds like a thin distorted ghost. The seam-like-step
+  counts the diagnostic flags originate in the raw capture (26) not the residual (18), so they
+  come in with the device data, not the EC/render path. **Remaining decisive audition: the
+  product-shaped mix** — the residual is beat-aligned, i.e. loudest exactly when the full-level
+  clean reference masking it is loudest, so the solo audition is a worst case; build the product
+  mix from the *real* EC'd stem (clean reference + `residual_with_vocal`, loudness-matched as
+  `render_bleed_mix.py` built the simulated rungs) and A/B it against the accepted
+  `mix_product_ec12` rung. If it reads as clean, v1 EC feasibility is fully closed and what
+  remains is the on-device Kotlin/C++ port.
 - Onset detection reliability on noisy phone-recorded music content — unverified.
 - USB Audio Class consistency across Android OEMs — not resolved, would need validation against actual target device list (only relevant if accessibility priority is later reversed).
 - **Non-visual (haptic) cue for the "recording" signal** — documentation review flagged that a

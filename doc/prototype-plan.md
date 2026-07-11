@@ -46,15 +46,18 @@ re-take gate):
 3. **Cross-device work** when a second device exists: bias subtraction (Test 3's ±8 ms gate) + the
    on-device two-gain AGC tone probe.
 
-Parallel (unblocked, no device needed): the remaining echo-cancellation work — audition the real
-NLMS residuals against the listening test's simulated ec12 rung. **Audition the
-`analysis/echo_cancel_eval_unprocessed/` renders first (2026-07-09): the capture-headroom probe
-resolved the ADC-rail question** — the rail is the `VoiceRecognition` HAL gain path, and
-`InputPreset::Unprocessed` captures the same cell un-railed, passing the riser/click bar with more
-margin and clearing the EC target (21.6 / 15.0 dB) with zero clip repair, so those residuals carry
-no saturation clicks and no muted spans (see `test2-sweep-results.md` "Capture-headroom probe";
-the clipped-capture renders in `analysis/echo_cancel_eval/` remain for A/B; regenerate either with
-`analysis/scripts/run_echo_cancel_eval.py`).
+Parallel (unblocked, no device needed): the one remaining echo-cancellation audition. The
+solo-residual audition is **done** (2026-07-11): the unprocessed-capture residuals
+(`analysis/echo_cancel_eval_unprocessed/`, from the capture-headroom-probe capture — the ADC-rail
+question is resolved, see `test2-sweep-results.md` "Capture-headroom probe") carry only the
+predicted benign classes — beat-transient mechanism residue at ~−21 dBFS (0 clipped samples;
+~17 dB quieter than the old saturation clicks) and the distorted-ghost bleed remnant that is EC
+working as designed (design-summary.md "Unprocessed-residual audition"). Remaining: **the
+product-shaped mix A/B** — build the product mix from the real EC'd stem (clean reference +
+`residual_with_vocal`, loudness-matched as `render_bleed_mix.py` built the simulated rungs) and
+audition against the accepted `mix_product_ec12` rung; the residual is beat-aligned so the mix,
+not the solo render, is the perceptually decisive test. A clean read closes v1 EC feasibility
+entirely, leaving only the on-device Kotlin/C++ port.
 
 ## Why these two, and not the others
 
