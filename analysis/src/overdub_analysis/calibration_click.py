@@ -148,6 +148,7 @@ def detect_click(
     capture: np.ndarray,
     rate: int,
     *,
+    template: np.ndarray | None = None,
     search_window: tuple[int | None, int | None] | None = None,
     quality_exclusion: int | None = None,
 ) -> ClickDetection:
@@ -160,6 +161,11 @@ def detect_click(
         band-limited by the acoustic path, polarity-inverted, and noisy).
     rate :
         Sample rate; must match the rate the reference was generated at.
+    template :
+        Matched-filter template to search for. Defaults to ``click_template(rate)``
+        (the canonical calibration click); callers that need a *different* known
+        signal (e.g. `overdub_analysis.pc_loopback`'s distinct per-channel chirps)
+        can pass their own template and reuse the same detection/quality logic.
     search_window :
         Optional ``(min_onset, max_onset)`` bound in samples restricting both
         the peak search and the competing-peak (quality) search -- same idea
@@ -181,7 +187,7 @@ def detect_click(
     index is directly the template's onset in the capture.
     """
     y = np.asarray(capture, dtype=np.float64).ravel()
-    tmpl = click_template(rate)
+    tmpl = click_template(rate) if template is None else np.asarray(template, dtype=np.float64).ravel()
     if y.size < tmpl.size:
         raise ValueError(f"capture ({y.size}) shorter than click template ({tmpl.size})")
 

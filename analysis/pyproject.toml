@@ -12,6 +12,11 @@ dependencies = [
 dev = [
     "pytest",
 ]
+# Real audio I/O for scripts/pc_loopback_check.py -- not needed for any pure offline analysis
+# (including overdub_analysis.pc_loopback's own logic/tests), only for actually driving hardware.
+pcloopback = [
+    "sounddevice",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -171,12 +171,67 @@ hard-fail gate outright. Two open items surfaced by the data, not yet resolved:
   next steps if it turns out not to be enough: a multimeter continuity check on the bare plug (maps
   its actual pin wiring, independent of any documentation), or testing the plug directly on a PC via
   BurnInTest to isolate plug-vs-phone.
-- **No offline click-position extraction exists yet for this route.** The 20 captured WAVs carry a
-  real signal, but Test 1/1a's actual pass/fail metric is the click's true position via
-  cross-correlation/click-detection on the pulled files, not the raw `getTimestamp` value (which
-  varied ~-38 ms to -98 ms rep-to-rep — expected per-session start jitter per the "Threshold
-  clarification" below, not itself a failure). This offline step, and the "two sequentially-
-  scheduled players" negative control the Method below calls for, are both still unbuilt.
+**Offline click-position extraction built and run (2026-07-17) — result: the rig cannot yet be
+scored.** `analysis/scripts/run_loopback_click_offset.py` locates the reference track's existing
+calibration click (`overdub_analysis.calibration_click` — the same alias-proof matched-filter
+chirp already validated as Test 2's ground truth, chosen over a GCC-PHAT-on-the-periodic-reference
+approach specifically to sidestep the beat-period-alias family of traps) in each pulled capture,
+and cross-checks it against the sidecar's `stream_offset_ms` (reusing
+`overdub_analysis.offset_decompose`'s residual arithmetic — the residual IS Test 1a's
+"discrepancy between AAudio's self-reported latency and the loopback ground truth"). Run over all
+23 pulled captures (the 20-rep canonical batch plus 3 earlier one-offs): **`click_quality_db` reads
+0.0–1.3 dB on every single capture, against the established 10 dB trust floor** — the matched
+filter cannot reliably locate the click at all (the recovered "offsets" scatter from -79 ms to
++290 ms with no consistency, the signature of noise, not a real detection). This is the same
+~-57 dBFS quietness already found, now demonstrated against the actual pass/fail mechanism rather
+than inferred from RMS: **neither Test 1's ±3ms bar nor Test 1a's ±5ms bar can be judged until the
+signal level is fixed.** The reseat and preset A/B already done are therefore not sufficient
+diagnosis on their own — the multimeter continuity check or a PC-side BurnInTest run (both still
+open, see above) are the next real steps before another batch is worth capturing.
+
+The "two sequentially-scheduled players" negative control the Method above calls for is separately
+still unbuilt (needs a new capture mode, not an offline analysis change) and is moot until the
+signal-level problem is resolved regardless.
+
+**PC-side plug diagnosis in progress (2026-07-17) — now pointing at the plug itself, independent
+of the phone.** Isolating "is it the phone/UCMA-2, or the plug" (per the two open diagnostics
+above) moved to a PC:
+
+- **BurnInTest (trial) Sound Test, PassMark plug direct into the PC's 3.5mm jack: 15 errors,
+  "corrupt audio input on left channel."** A real signal reaches the input, but degraded/wrong on
+  one channel — a different failure signature than the phone's silence-level quietness.
+- **Skeptical of a third-party black-box verdict, built an independent PC-side instrument instead
+  of trusting BurnInTest's undocumented distortion analysis** — `overdub_analysis.pc_loopback`
+  (two spectrally-distinct, non-overlapping-band chirps, one nominally routed per channel; `detect_click`
+  generalized with an optional `template` param so the same matched-filter/quality machinery Test 2
+  already validated could be reused rather than duplicated) plus
+  `analysis/scripts/pc_loopback_check.py` (drives simultaneous stereo play+record via
+  `sounddevice`). 7 new unit tests cover the four diagnoses a channel can read (`ok`/`swapped`/
+  `no-signal`/`ambiguous`, the last guarding against a channel that reads "ok" merely because its
+  own template is *present*, not *dominant* — real crosstalk must not pass as clean). 138/138
+  analysis tests pass.
+- **First real run: both channels "no-signal."** Traced to a methodology gap, not the plug: Windows'
+  default recording device was the laptop's built-in mic array (`Microphone Array (Intel Smart
+  Sound Technology)`), not the jack the plug was in — the test played correctly out the jack but
+  recorded from a completely different microphone. Added `--list-devices`/`--input-device`/
+  `--output-device` to the script so the device pair is explicit and verified, never silently
+  OS-default.
+- **Device list revealed the analog mic-in only enumerates via WDM-KS, absent from MME/
+  DirectSound/WASAPI** — the signature of a recording device disabled in Windows' Sound Control
+  Panel (disabled devices are filtered from the higher-level APIs but not from WDM-KS). Windows 11
+  moved this UI, but the legacy dialog is still reachable directly: Win+R → `mmsys.cpl` → Recording
+  tab → right-click → "Show Disabled Devices."
+- **Re-enabling it did not fix the symptom: Windows reports the jack itself as "not plugged in"
+  even with the PassMark plug inserted.** This is jack-presence detection — electrically/mechanically
+  sensing whether a plug is seated — a layer independent of BurnInTest, `pc_loopback_check.py`, and
+  every Windows audio API checked so far. If the PC's own hardware doesn't register a plug is
+  present at all, the most likely explanations are a physical defect (wrong pin length/shape for
+  this jack, a bent/damaged contact) or a genuinely faulty unit, not a wiring-standard or software
+  question. **Not yet confirmed**, pending two isolating checks: (1) does a normal headphone/aux
+  cable get detected in the same jack (isolates jack-detection hardware vs. the plug), and (2) does
+  the PassMark plug get detected in a different jack/device. If both point to the plug, the next
+  step is contacting PassMark/the seller about a replacement, not further wiring or gain
+  investigation on the phone side — the phone was likely never the actual fault.
 
 **Method:** drive a known click/test signal through the electrical loopback, **through the
 harness's own continuous-buffer capture path — not OboeTester alone.** OboeTester measures the

@@ -84,3 +84,6 @@ analysis/riser_check/
 # Capture-headroom probe captures (test2-sweep-results.md "Capture-headroom probe";
 # judged by analysis/scripts/census_clipping.py).
 analysis/headroom_probe/
+# Electrical-loopback rig captures (prototype-plan.md Test 1 / Test 1a; judged by
+# analysis/scripts/run_loopback_click_offset.py).
+analysis/loopback_data/
