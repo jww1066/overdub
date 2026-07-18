@@ -13,6 +13,7 @@ class ConditionMetadataTest {
         orientation = "face-up",
         obstruction = "none",
         outputRoute = "speaker",
+        inputRoute = "builtin_mic",
         inputPreset = "voice_recognition",
         sampleRate = 48000,
         xrunCount = 0,
@@ -67,6 +68,20 @@ class ConditionMetadataTest {
     }
 
     @Test
+    fun `legacy sidecar without input_route decodes as unknown`() {
+        // Sidecars written before the electrical-loopback rig's input-route field existed must
+        // decode with inputRoute == "unknown" (the same honesty convention as reflector_geometry),
+        // not silently claim builtin_mic for a run that never recorded it.
+        val legacyJson = """
+            {"condition_id":"c","playback_volume":0.6,"distance_cm":50,"orientation":"o",
+             "obstruction":"n","output_route":"speaker","input_preset":"voice_recognition",
+             "sample_rate":48000,"timestamp":1}
+        """.trimIndent()
+        assertEquals(false, legacyJson.contains("input_route"))
+        assertEquals("unknown", conditionMetadataFromJson(legacyJson).inputRoute)
+    }
+
+    @Test
     fun `round-trips with an unusual condition id string`() {
         val original = sample().copy(
             conditionId = "quiet_pocketed_face-down_\"weird\"_ünïcode_id 123",
@@ -82,6 +97,7 @@ class ConditionMetadataTest {
         assertEquals(true, json.contains("\"playback_volume\""))
         assertEquals(true, json.contains("\"distance_cm\""))
         assertEquals(true, json.contains("\"output_route\""))
+        assertEquals(true, json.contains("\"input_route\""))
         assertEquals(true, json.contains("\"input_preset\""))
         assertEquals(true, json.contains("\"sample_rate\""))
         assertEquals(true, json.contains("\"xrun_count\""))

@@ -48,6 +48,13 @@ data class ConditionMetadata(
     @SerialName("orientation") val orientation: String,
     @SerialName("obstruction") val obstruction: String,
     @SerialName("output_route") val outputRoute: String,
+    /**
+     * Resolved input device label (e.g. "builtin_mic", "usb_headset") -- the input-side sibling of
+     * [outputRoute], added for the electrical-loopback rig (prototype-plan.md Test 1 / Test 1a),
+     * where the input stream must land on the USB device, not the built-in mic. Defaults to
+     * "unknown" on legacy sidecars written before this field existed.
+     */
+    @SerialName("input_route") val inputRoute: String = "unknown",
     @SerialName("input_preset") val inputPreset: String,
     @SerialName("sample_rate") val sampleRate: Int,
     @SerialName("xrun_count") val xrunCount: Int? = null,

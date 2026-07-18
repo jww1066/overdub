@@ -56,6 +56,10 @@ data class CaptureResult(
     val sampleRate: Int,
     val outputRoute: String,
     val routeIsBuiltinSpeaker: Boolean,
+    /** Resolved input device label (e.g. "builtin_mic", "usb_headset") -- test2-step2-plan.md item 10 sibling for the input side. */
+    val inputRoute: String = "unknown",
+    /** True if the input stream actually landed on a USB device -- the electrical-loopback rig's own honesty check on the input half. */
+    val routeIsUsbInput: Boolean = false,
     /** Derived output<->input stream start misalignment (test2-step2-plan.md item 10); null if */
     /** getTimestamp was unavailable on this device. */
     val streamOffsetMs: Double?,
@@ -160,9 +164,11 @@ class CaptureEngine(private val context: Context) {
         }
 
         // Output route: built-in speaker by default; a connected headset for the headset-route
-        // mode (spec.outputToHeadset). Input is ALWAYS the built-in mic — the product-realistic
-        // headphone session is headset-out + built-in-mic-in (inline headset mics are poor for
-        // vocals; see prototype-plan.md "Rig scoping").
+        // mode and the electrical-loopback rig (spec.outputToHeadset). Input is the built-in mic
+        // by default -- the product-realistic headphone session is headset-out + built-in-mic-in
+        // (inline headset mics are poor for vocals; see prototype-plan.md "Rig scoping") -- unless
+        // spec.inputFromUsb requests the USB device's own input line, which is what the PassMark
+        // loopback plug wires the USB output back into (Test 1 / Test 1a).
         val outputId = if (spec.outputToHeadset) {
             val id = headsetOutputDeviceId()
             if (id == -1) {
@@ -175,7 +181,18 @@ class CaptureEngine(private val context: Context) {
         } else {
             builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, output = true)
         }
-        val micId = builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_MIC, output = false)
+        val micId = if (spec.inputFromUsb) {
+            val id = usbInputDeviceId()
+            if (id == -1) {
+                throw CaptureException(
+                    "spec '${spec.captureId}' requires a USB input device (electrical loopback) " +
+                        "but none is connected — check the USB adapter and retry",
+                )
+            }
+            id
+        } else {
+            builtinDeviceId(AudioDeviceInfo.TYPE_BUILTIN_MIC, output = false)
+        }
 
         val gain = spec.playbackGain.toFloat()
 
@@ -219,6 +236,7 @@ class CaptureEngine(private val context: Context) {
             val dropped = NativeBridge.nativeGetDroppedFrameCount()
             val actualRate = NativeBridge.nativeGetActualSampleRate().takeIf { it > 0 } ?: sampleRate
             val outputDeviceId = NativeBridge.nativeGetOutputDeviceId()
+            val inputDeviceId = NativeBridge.nativeGetInputDeviceId()
 
             // Hardware stream timestamps (item 10): recover the per-session output<->input start
             // misalignment so the offline decomposition can subtract it from the GCC-PHAT offset.
@@ -281,6 +299,10 @@ class CaptureEngine(private val context: Context) {
                 val expected = if (spec.outputToHeadset) "a headset" else "the built-in speaker"
                 Log.w(TAG, "output route is '$routeLabel', not $expected -- capture may be invalid")
             }
+            val (inputRouteLabel, isUsbInput) = resolveInputRoute(inputDeviceId)
+            if (spec.inputFromUsb && !isUsbInput) {
+                Log.w(TAG, "input route is '$inputRouteLabel', not a USB device -- capture may be invalid")
+            }
             if (xrun > 0) Log.w(TAG, "XRun count $xrun > 0 -- this capture is contaminated")
             if (dropped > 0) Log.w(TAG, "dropped $dropped captured samples (ring overflow)")
 
@@ -320,6 +342,7 @@ class CaptureEngine(private val context: Context) {
                 orientation = spec.orientation,
                 obstruction = spec.obstruction,
                 outputRoute = routeLabel,
+                inputRoute = inputRouteLabel,
                 inputPreset = spec.inputPreset.label,
                 sampleRate = actualRate,
                 xrunCount = xrun,
@@ -350,6 +373,8 @@ class CaptureEngine(private val context: Context) {
                 sampleRate = actualRate,
                 outputRoute = routeLabel,
                 routeIsBuiltinSpeaker = isSpeaker,
+                inputRoute = inputRouteLabel,
+                routeIsUsbInput = isUsbInput,
                 streamOffsetMs = streamOffset?.ms,
                 timestampSamples = timestampSamples,
                 peakAbs = census.peakAbs,
@@ -398,6 +423,16 @@ class CaptureEngine(private val context: Context) {
         return -1
     }
 
+    /** Finds a connected USB INPUT device id (the electrical-loopback rig's input line), or -1 if none. */
+    private fun usbInputDeviceId(): Int {
+        val usbTypes = intArrayOf(AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE)
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        for (type in usbTypes) {
+            devices.firstOrNull { it.type == type }?.let { return it.id }
+        }
+        return -1
+    }
+
     /** Resolves the actual output device id into a label + whether it's the built-in speaker. */
     private fun resolveOutputRoute(deviceId: Int): Pair<String, Boolean> {
         val device = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -407,9 +442,19 @@ class CaptureEngine(private val context: Context) {
         return (audioDeviceTypeLabel(device.type) to isSpeaker)
     }
 
+    /** Resolves the actual input device id into a label + whether it's a USB device. */
+    private fun resolveInputRoute(deviceId: Int): Pair<String, Boolean> {
+        val device = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            .firstOrNull { it.id == deviceId }
+            ?: return ("unknown(id=$deviceId)" to false)
+        val isUsb = device.type == AudioDeviceInfo.TYPE_USB_HEADSET || device.type == AudioDeviceInfo.TYPE_USB_DEVICE
+        return (audioDeviceTypeLabel(device.type) to isUsb)
+    }
+
     private fun audioDeviceTypeLabel(type: Int): String = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "builtin_speaker"
         AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "builtin_earpiece"
+        AudioDeviceInfo.TYPE_BUILTIN_MIC -> "builtin_mic"
         AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired_headset"
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_headphones"
         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth_a2dp"

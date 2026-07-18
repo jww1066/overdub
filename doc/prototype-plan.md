@@ -133,9 +133,50 @@ results:
 a Movo UCMA-2 USB-C-to-TRRS adapter (the Pixel 10 has no 3.5mm jack). This is a fully electrical
 loopback path (phone USB-C → UCMA-2 → PassMark plug): the test signal is generated and read back
 over the wired connection, no acoustic signal involved. Test 2's acoustic bleed test is unaffected
-and uses the phone's built-in speaker/mic directly. **Delivery is delayed (as of 2026-07-08);**
-the rig-independent parts of the timestamp question were pulled forward into Test 1a's "Interim
-timestamp-variance plan" below.
+and uses the phone's built-in speaker/mic directly.
+
+**Rig arrived and wired end-to-end (2026-07-17).** `adb shell dumpsys audio` confirms the USB PnP
+Audio Device (card=1, device=0) enumerates as both a sink (output) and a source (input),
+`DEVICE_STATE_AVAILABLE` on both — the plug/adapter pair supports full duplex. The harness had no
+path for input to come from anywhere but the built-in mic (`CaptureEngine.kt`'s `micId` was
+hardcoded to `TYPE_BUILTIN_MIC`); closed that gap:
+
+- `CaptureSpec.inputFromUsb` (alongside the existing `outputToHeadset`) plus a `usbInputDeviceId()`
+  lookup mirroring `headsetOutputDeviceId()`, hard-failing if no USB input device is present.
+- `LOOPBACK_SPEC` + `ConditionSweepTest#electricalLoopbackCapture` (writes to `files/loopback`,
+  never `files/sweep`), asserting XRun==0/dropped==0/output-is-USB/input-is-USB. Accepts optional
+  `-e capture_format`/`-e input_preset` args (same vocabulary as `headroomProbe`) so the input gain
+  path can be A/B'd directly on the rig.
+- `CaptureResult`/`ConditionMetadata` gained an `inputRoute`/`input_route` field, the input-side
+  sibling of the existing `outputRoute` — the sidecar can now show the input landed on
+  `usb_headset` rather than only asserting it in-process.
+- `harness/scripts/run_loopback_batch.sh`, mirroring `run_headset_route_batch.sh`, for driving N
+  reps back-to-back.
+
+**First real batch (2026-07-17, Pixel 10, 20 reps, canonical i16/voice_recognition arm): 20/20
+clean, 0 XRuns, 0 dropped frames, USB confirmed on both routes every rep.** Clears Test 1's
+hard-fail gate outright. Two open items surfaced by the data, not yet resolved:
+
+- **The captured signal is quiet** — peak ranged ~0.0013–0.017 FS (mostly ~-57 dBFS, one rep at
+  ~-35 dBFS) across the 20 reps, well under the `RMS_SANITY_FLOOR` tuned for acoustic bleed
+  captures (not asserted here on purpose — see below). Reseating the plug and swapping
+  `voice_recognition` → `unprocessed` each moved the peak by <2x, ruling out a loose contact or an
+  AGC/gain-path explanation; a genuine level or wiring-standard mismatch is more likely. PassMark's
+  own spec page confirms the plug is a "CTIA Standard connector" built to Google's circuit spec for
+  Android headset-jack loopback testing (not a PC-line-level assumption, which was the first
+  hypothesis and is now weaker) — [passmark.com/products/audio-loopback-plug/specifications.php](https://www.passmark.com/products/audio-loopback-plug/specifications.php).
+  Movo's UCMA-2 documentation never states CTIA or OMTP explicitly. Whether ~-57 dBFS is high
+  enough above the noise floor for a reliable click-position estimate is still open — needs the
+  offline extraction below to actually judge, rather than guessing from RMS alone. Unresolved
+  next steps if it turns out not to be enough: a multimeter continuity check on the bare plug (maps
+  its actual pin wiring, independent of any documentation), or testing the plug directly on a PC via
+  BurnInTest to isolate plug-vs-phone.
+- **No offline click-position extraction exists yet for this route.** The 20 captured WAVs carry a
+  real signal, but Test 1/1a's actual pass/fail metric is the click's true position via
+  cross-correlation/click-detection on the pulled files, not the raw `getTimestamp` value (which
+  varied ~-38 ms to -98 ms rep-to-rep — expected per-session start jitter per the "Threshold
+  clarification" below, not itself a failure). This offline step, and the "two sequentially-
+  scheduled players" negative control the Method below calls for, are both still unbuilt.
 
 **Method:** drive a known click/test signal through the electrical loopback, **through the
 harness's own continuous-buffer capture path — not OboeTester alone.** OboeTester measures the

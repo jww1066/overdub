@@ -81,6 +81,24 @@ class CaptureSpecTest {
     }
 
     @Test
+    fun `loopback spec targets USB in and out and is not a matrix cell`() {
+        assertTrue(LOOPBACK_SPEC.outputToHeadset)
+        assertTrue(LOOPBACK_SPEC.inputFromUsb)
+        assertEquals("loopback", LOOPBACK_SPEC.captureId)
+        val matrixIds = generateConditionMatrix().map { it.conditionId }.toSet()
+        assertTrue("loopback collides with a matrix cell id", LOOPBACK_SPEC.captureId !in matrixIds)
+    }
+
+    @Test
+    fun `matrix cells and the vocal take keep the built-in mic input`() {
+        // inputFromUsb must stay false everywhere except the explicit loopback spec — a sweep cell
+        // silently routing input to a USB device would invalidate its bleed data.
+        generateConditionMatrix().forEach { assertTrue(!it.toCaptureSpec().inputFromUsb) }
+        assertTrue(!VOCAL_TAKE_SPEC.inputFromUsb)
+        assertTrue(!HEADSET_ROUTE_SPEC.inputFromUsb)
+    }
+
+    @Test
     fun `vocal take spec is record-only and not a matrix cell`() {
         // Gain must be exactly 0.0 -- any acoustic playback would contaminate the take with real
         // reference bleed, which is precisely what the injection study must control externally.

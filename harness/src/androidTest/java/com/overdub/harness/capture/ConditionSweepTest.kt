@@ -236,6 +236,80 @@ class ConditionSweepTest {
     }
 
     @Test
+    fun electricalLoopbackCapture() {
+        // Test 1 / Test 1a (prototype-plan.md "Hardware status"): the reference plays out through
+        // the USB adapter and is read back on the SAME adapter's input line via a PassMark TRRS
+        // loopback plug -- no acoustic path, no room, no positioning. The engine hard-fails if
+        // either a USB output or a USB input device isn't present (CaptureEngine.usbInputDeviceId /
+        // headsetOutputDeviceId), so a run that completes at all already confirms the rig is wired
+        // correctly. Output goes to files/loopback, never files/sweep -- this is not bleed data.
+        //
+        // Optional `-e capture_format`/`-e input_preset` args (same vocabulary as [headroomProbe])
+        // let the operator A/B the input gain path directly on the rig -- e.g. the first real run
+        // measured peak=0.0012 FS (~-58 dBFS) on the canonical i16/voice_recognition arm, quiet
+        // enough to warrant checking whether UNPROCESSED's HAL gain path reads the electrical
+        // signal any hotter before trusting a 20-rep batch to either preset.
+        val fmtArg = InstrumentationRegistry.getArguments().getString("capture_format")
+        val captureFloat = when (fmtArg) {
+            null -> LOOPBACK_SPEC.captureFloat
+            "float32", "float" -> true
+            "i16" -> false
+            else -> throw IllegalArgumentException("unknown capture_format '$fmtArg' (i16|float32)")
+        }
+        val presetArg = InstrumentationRegistry.getArguments().getString("input_preset")
+        val preset = if (presetArg == null) {
+            LOOPBACK_SPEC.inputPreset
+        } else {
+            CaptureInputPreset.entries.firstOrNull { it.label == presetArg }
+                ?: throw IllegalArgumentException(
+                    "unknown input_preset '$presetArg' (${CaptureInputPreset.entries.joinToString("|") { it.label }})",
+                )
+        }
+        val spec = LOOPBACK_SPEC.copy(
+            captureId = "loopback_${if (captureFloat) "float32" else "i16"}_${preset.label}",
+            captureFloat = captureFloat,
+            inputPreset = preset,
+        )
+
+        val loopbackDir = File(context.getExternalFilesDir(null), "loopback").apply { mkdirs() }
+        Log.i(TAG, "=== electrical loopback capture: USB out -> USB in via PassMark plug (${spec.captureId}) ===")
+        Log.i(TAG, "output dir (adb pull this): ${loopbackDir.absolutePath}")
+
+        val result = engine.runCapture(spec, loopbackDir)
+
+        Log.i(
+            TAG,
+            ("RESULT ${spec.captureId}: rms=%.1f peak=%.6fFS xrun=%d dropped=%d out_route=%s in_route=%s " +
+                "rate=%dHz stream_offset_ms=%s ts_reads=%d file=%s")
+                    .format(
+                        result.rms,
+                        result.peakAbs,
+                        result.xrunCount,
+                        result.droppedFrameCount,
+                        result.outputRoute,
+                        result.inputRoute,
+                        result.sampleRate,
+                        result.streamOffsetMs?.let { "%.2f".format(it) } ?: "UNAVAILABLE",
+                        result.timestampSamples?.size ?: 0,
+                        result.wavFile.name,
+                    ),
+        )
+
+        // Any underrun invalidates the continuous-stream assumption Test 1 exists to check
+        // (prototype-plan.md Test 1 pass/fail threshold) -- hard fail, not just a logged flag.
+        assertEquals("XRun during capture invalidates this rep — retry", 0, result.xrunCount)
+        assertEquals("ring overflow dropped samples — retry", 0L, result.droppedFrameCount)
+        assertTrue(
+            "output route was ${result.outputRoute}, expected the USB adapter — check the connection and retry",
+            !result.routeIsBuiltinSpeaker,
+        )
+        assertTrue(
+            "input route was ${result.inputRoute}, expected the USB adapter — check the PassMark plug and retry",
+            result.routeIsUsbInput,
+        )
+    }
+
+    @Test
     fun headroomProbe() {
         // Capture-headroom diagnostic (the ADC-rail finding, doc/guides/offline-dsp.md "census raw
         // captures"): one capture of the named condition (default: baseline cell) with the capture

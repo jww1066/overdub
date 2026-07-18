@@ -45,6 +45,16 @@ data class CaptureSpec(
     val captureFloat: Boolean = false,
     /** Input preset to request; sweep cells keep the canonical [CaptureInputPreset.VOICE_RECOGNITION]. */
     val inputPreset: CaptureInputPreset = CaptureInputPreset.VOICE_RECOGNITION,
+    /**
+     * When true, the input stream is forced to a connected USB input device instead of the
+     * built-in mic — the electrical-loopback rig (prototype-plan.md Test 1 / Test 1a): a PassMark
+     * TRRS loopback plug into a USB-C audio adapter wires the adapter's own output directly back
+     * into its own input, so both ends of the full-duplex stream must be the USB device, not the
+     * phone's speaker/mic. Capture hard-fails if no USB input device is present rather than
+     * silently falling back to the built-in mic. Sweep cells, the vocal take, and the headset-route
+     * study all keep the default (built-in mic input).
+     */
+    val inputFromUsb: Boolean = false,
 )
 
 fun Condition.toCaptureSpec(): CaptureSpec = CaptureSpec(
@@ -103,4 +113,24 @@ val HEADSET_ROUTE_SPEC = CaptureSpec(
     orientation = "faceup",
     obstruction = "none",
     outputToHeadset = true,
+)
+
+/**
+ * Electrical-loopback mode for Test 1 / Test 1a (prototype-plan.md "Hardware status"): the
+ * reference plays into the USB adapter and is read back on the *same* adapter's input line
+ * through a PassMark TRRS loopback plug, with no acoustic path at all — the instrument for the
+ * continuous-buffer scheduling-seam question (Test 1) and the ground truth for the AAudio
+ * self-reported-latency question (Test 1a) on the one route with no calibration-click fallback.
+ * `distanceCm`/`orientation`/`obstruction` are meaningless here (the phone doesn't move between
+ * reps); the distinct `captureId` tells sidecar readers which semantics apply, same convention as
+ * [HEADSET_ROUTE_SPEC].
+ */
+val LOOPBACK_SPEC = CaptureSpec(
+    captureId = "loopback",
+    playbackGain = 0.6,
+    distanceCm = 0,
+    orientation = "n/a",
+    obstruction = "none",
+    outputToHeadset = true,
+    inputFromUsb = true,
 )
